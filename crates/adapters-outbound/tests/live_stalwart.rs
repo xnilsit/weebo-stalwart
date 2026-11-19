@@ -401,8 +401,9 @@ mod accounts {
             let (patch, drift) = account_patch(&desired, &edited);
             assert_eq!(drift.fields(), ["aliases", "permissions"]);
             gw.update_account(&id, &patch).await.unwrap();
+        } else {
+            gw.update_account(&id, &patch).await.unwrap();
         }
-        gw.update_account(&id, &patch).await.unwrap();
         let fixed = gw.get_account(&id).await.unwrap().unwrap();
         assert!(account_patch(&desired, &fixed).1.is_empty(), "{fixed:?}");
         // The App Password survived the patch.
