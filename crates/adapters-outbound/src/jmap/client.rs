@@ -116,6 +116,11 @@ impl JmapClient {
             .redirect(reqwest::redirect::Policy::none())
     }
 
+    /// The server's base URL (`spec.url`, parsed).
+    pub(crate) fn base_url(&self) -> &str {
+        self.base.as_str()
+    }
+
     /// `{url}/<segments…>`, each segment percent-encoded.
     #[expect(
         clippy::expect_used,

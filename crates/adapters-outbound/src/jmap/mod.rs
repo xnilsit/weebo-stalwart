@@ -115,29 +115,36 @@ pub fn check_v1_schema(schema: &Value) -> Result<(), String> {
     }
 }
 
-/// The verdicts of [`check_v1_schema`] by hash: a hash names one schema,
-/// so each is fetched once per process.
-static CHECKED_SCHEMAS: LazyLock<Mutex<HashMap<String, Result<(), String>>>> =
+/// The verdict of [`check_v1_schema`] per server (its base URL), for the
+/// hash it last served: each schema is fetched once per process and
+/// server. Keyed by server, not by hash alone: the operator doesn't verify
+/// that a schema matches its hash, so a namespace's own server
+/// (`StalwartLocalInstance`) must not decide the verdict of another's.
+static CHECKED_SCHEMAS: LazyLock<Mutex<HashMap<String, CheckedSchema>>> =
     LazyLock::new(Mutex::default);
-/// At most this many verdicts are kept: a server answering a new hash on
-/// every call must not grow the operator's memory.
-const MAX_CHECKED_SCHEMAS: usize = 64;
+/// A hash, and the verdict of its schema.
+type CheckedSchema = (String, Result<(), String>);
+/// At most this many servers are remembered; past it, every verdict is
+/// forgotten (the next reconciles fetch their schemas again).
+const MAX_CHECKED_SCHEMAS: usize = 256;
 
-fn checked_schema(hash: &str) -> Option<Result<(), String>> {
+fn checked_schema(server: &str, hash: &str) -> Option<Result<(), String>> {
     CHECKED_SCHEMAS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(hash)
-        .cloned()
+        .get(server)
+        .filter(|(checked, _)| checked == hash)
+        .map(|(_, verdict)| verdict.clone())
 }
 
-fn remember_schema(hash: &str, verdict: Result<(), String>) {
+fn remember_schema(server: &str, hash: &str, verdict: Result<(), String>) {
     let mut checked = CHECKED_SCHEMAS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if checked.len() < MAX_CHECKED_SCHEMAS {
-        checked.insert(hash.to_string(), verdict);
+    if checked.len() >= MAX_CHECKED_SCHEMAS && !checked.contains_key(server) {
+        checked.clear();
     }
+    checked.insert(server.to_string(), (hash.to_string(), verdict));
 }
 
 /// Reads the App Password key and builds its client: called once, the
@@ -222,9 +229,10 @@ impl JmapGateway {
     }
 
     /// A hash outside [`SUPPORTED_SCHEMAS`]: its schema, read once per
-    /// process, must pass [`check_v1_schema`].
+    /// process and server, must pass [`check_v1_schema`].
     async fn check_schema(&self, hash: &str) -> Result<(), GatewayError> {
-        let verdict = match checked_schema(hash) {
+        let server = self.client.base_url();
+        let verdict = match checked_schema(server, hash) {
             Some(verdict) => verdict,
             None => {
                 let schema = match self.client.schema(hash).await {
@@ -238,7 +246,7 @@ impl JmapGateway {
                     Err(e) => return Err(e),
                 };
                 let verdict = check_v1_schema(&schema);
-                remember_schema(hash, verdict.clone());
+                remember_schema(server, hash, verdict.clone());
                 verdict
             }
         };

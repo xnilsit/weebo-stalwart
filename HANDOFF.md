@@ -171,7 +171,10 @@ v0.16.27, v1.0.0 and v1.1.1.
   (`GET /api/schema/<hash>`, always gzipped: reqwest's `gzip` feature) and
   must have `x:OAuthGrant` (1.0.0) and every property the gateway reads or
   writes (`check_v1_schema`, built from the `PROPERTIES` constants).
-  Verdicts cached per hash (max 64). A 404 on the schema is
+  Verdicts cached per server base URL, for the hash it last served (max
+  256 servers, then cleared): not per hash alone, since the schema isn't
+  verified against its hash and a namespace's own server must not decide
+  for another. A 404 on the schema is
   `UnsupportedVersion`.
 - **Wire**: `EmailAlias.enabled` → `enable`. Aliases are now sent without
   the flag (both default to enabled); read as `enable`, then `enabled`.

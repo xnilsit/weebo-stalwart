@@ -196,6 +196,27 @@ async fn a_v1_schema_is_accepted_and_read_once_per_process() {
 }
 
 #[tokio::test]
+async fn a_server_serving_a_bad_schema_under_a_hash_doesnt_decide_for_another() {
+    // A namespace's own server claims the real server's hash with a schema
+    // that fails the check: the real one is still read and accepted.
+    let hash = "v1-shared-hash-Wn5pL1";
+    let rogue = stalwart(hash).await;
+    let mut bad = v1_schema();
+    bad["objects"]
+        .as_object_mut()
+        .unwrap()
+        .remove("x:OAuthGrant");
+    schema_document(&rogue, hash, bad, 1).await;
+    assert!(matches!(
+        gateway(&rogue).ping().await,
+        Err(GatewayError::UnsupportedVersion(_))
+    ));
+    let real = stalwart(hash).await;
+    schema_document(&real, hash, v1_schema(), 1).await;
+    gateway(&real).ping().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_schema_without_the_v1_marker_is_an_unsupported_version_and_nothing_is_called() {
     // A v0.16 hash the release doesn't know (v0.16.0's schema, say).
     let hash = "aJJKvnpsjjwAEzJ0eKDWdfSLK_RvBKsLhk8BwCq-7qA";
