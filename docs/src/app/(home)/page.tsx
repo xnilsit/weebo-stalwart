@@ -5,7 +5,7 @@ export default function HomePage() {
   return (
     <OperatorHome
       site={site}
-      label="Kubernetes operator · Stalwart v0.16"
+      label="Kubernetes operator · Stalwart 1.x and v0.16"
       caption="Manage the inside of an existing Stalwart mail server — domains, application sending accounts, mailboxes, groups and mailing lists — as Kubernetes custom resources, with GitOps-friendly status and a namespace allow-list."
       actions={[
         { href: '/docs/getting-started', label: 'Get started', primary: true },

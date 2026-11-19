@@ -5,7 +5,7 @@
   "served": [
     "v1alpha1"
   ],
-  "description": "Connection to one Stalwart server (v0.16), owned by a namespace: its\ntoken is that namespace's, and only its objects use it unless\n`sharedWith` says otherwise. What an operator limited to one namespace\nuses. Objects bound to it are not governed by `StalwartNamespacePolicy`\n(the namespace's own token bounds them) and write their secrets as\nKubernetes `Secret`s only: the operator's Vault identity is shared by\nevery namespace. `Ready` tells whether the server answers with the\ntoken below and speaks a supported management schema.",
+  "description": "Connection to one Stalwart server (v0.16 or 1.x), owned by a namespace: its\ntoken is that namespace's, and only its objects use it unless\n`sharedWith` says otherwise. What an operator limited to one namespace\nuses. Objects bound to it are not governed by `StalwartNamespacePolicy`\n(the namespace's own token bounds them) and write their secrets as\nKubernetes `Secret`s only: the operator's Vault identity is shared by\nevery namespace. `Ready` tells whether the server answers with the\ntoken below and speaks a supported management schema.",
   "properties": {
     "appPasswordTokenSecretRef": {
       "description": "A second API key of Stalwart, on the same account as the one above,\nin a `Secret` of this namespace with the same label: the one that\ncreates, rotates and revokes the App Passwords of the\n`StalwartServiceAccount`s (permissions `authenticate`,\n`impersonate`, `emailSend` and `sysAppPassword*` only). Read on\nevery reconcile of a `StalwartServiceAccount`; unset, those fail\nwith `TokenSecretMissing` (the other kinds don't use it).",

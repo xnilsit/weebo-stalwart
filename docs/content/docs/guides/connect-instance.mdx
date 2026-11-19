@@ -9,8 +9,8 @@ authenticate. Every other CR uses it.
 ## Before you begin
 
 - The operator is [installed](/docs/guides/install).
-- You have an **administrator** account on a Stalwart v0.16 (v0.16.25 to
-  v0.16.27), to create the operator's two API keys.
+- You have an **administrator** account on a Stalwart 1.x or v0.16
+  (v0.16.25 to v0.16.27), to create the operator's two API keys.
 
 ## Connect
 
@@ -100,7 +100,7 @@ why:
 | `InvalidSpec` | The `url` can't be parsed |
 | `InstanceUnreachable` | Check the URL, DNS, network policies and TLS (`tls.caSecretRef` for a private CA) |
 | `InstanceUnauthorized` | Stalwart refused the key (401/403): it was revoked, or it lacks permissions |
-| `UnsupportedStalwartVersion` | The server's schema hash is not one this release was tested against: run a supported Stalwart, or upgrade the operator |
+| `UnsupportedStalwartVersion` | The server's schema is not one this release can speak (an unknown v0.16 hash, or a schema without a property the operator uses): run a supported Stalwart, or upgrade the operator |
 
 </Step>
 </Steps>
@@ -111,12 +111,32 @@ A Stalwart API key can't grant what its account lacks, and its account
 needs what the management methods check. In practice the operator's key
 holds:
 
-- the User role's permissions (the JMAP session and the schema need them),
-  including `sysApiKey*`, `sysAppPassword*` and `jmapEmail*`;
+- the permissions of the server's default User role (the JMAP session and
+  the schema need them), including `sysApiKey*`, `sysAppPassword*` and
+  `jmapEmail*`;
 - `sysDomain{Get,Query,Create,Update}` — no `sysDomainDestroy`: a
   `StalwartDomain` is never deleted by the operator;
 - `sysAccount{Get,Query,Create,Update,Destroy}`;
 - `sysMailingList{Get,Query,Create,Update,Destroy}`.
+
+The User role is not the same in every Stalwart release: 1.0.0 removed
+some names and added others, and 1.1.0 added `sysPasskey*`. Stalwart
+refuses a key that names a permission it does not know. So read the role
+from the server when you create the key: `x:Authentication/get` gives
+`defaultUserRoleIds`, and `x:Role/get` on those ids gives their
+`enabledPermissions`. Add the `sys*` permissions above, which are also in
+`deploy/stalwart/operator-api-key-extra-permissions.json`.
+`.tasks/stalwart.yaml` shows the whole bootstrap.
+
+If you add permissions to the User role, for example after an upgrade with
+`STALWART_UPDATE_ROLE_PERMISSIONS=true`, create the key again. Otherwise
+the operator cannot create `User` accounts, because a key cannot grant a
+permission that it does not hold.
+
+On Stalwart 1.x, a key also cannot update or delete an account that holds
+a permission that the key does not hold. If someone gives a managed account
+the `Admin` role by hand, the operator cannot put it back: the object
+reports `InstanceUnauthorized` until an administrator removes the role.
 
 No `impersonate`, and no server setting is ever written by the operator.
 Without an OpenID Connect default directory, be aware that

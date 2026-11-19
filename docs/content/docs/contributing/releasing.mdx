@@ -52,20 +52,28 @@ run `publish.yml` manually with that tag.
 | Generated files up to date: CRDs, their chart copies, the docs' CRD and reference pages | `ci.yml` job `regen-and-diff` |
 | The docs site builds and lints | `ci.yml` job `docs` |
 | Both images build and run (`weebo-stalwart-importer --version`) | `ci.yml` job `image-build` |
-| Against a real Stalwart v0.16.27: gateway, controllers, importer | `task test:live-stalwart` |
+| Against a real Stalwart (v1.1.1, then v1.0.0 and v0.16.27 with `IMAGE=`): gateway, controllers, importer | `task test:live-stalwart` |
 
 For the live suites: `task stalwart:container:start ENGINE=podman` (writes
 `.stalwart-test.env`), `task test:live-stalwart`, then
-`task stalwart:container:stop ENGINE=podman`.
+`task stalwart:container:stop ENGINE=podman`. To test another release, add
+`IMAGE=docker.io/stalwartlabs/stalwart:<tag>` to the start command.
 
 ## Supporting a new Stalwart release
 
-The operator only writes to a server whose management schema hash it
-knows (`SUPPORTED_SCHEMAS`, `crates/adapters-outbound/src/jmap/mod.rs`). A
-Stalwart patch that keeps the schema needs no release; one that changes it
-needs the contract and live suites run against the new image, then the
-hash added, then a release — before the Stalwart upgrade reaches the
-clusters.
+The operator checks the management schema before it writes
+(`crates/adapters-outbound/src/jmap/mod.rs`):
+
+- A v0.16 server must serve a schema hash in `SUPPORTED_SCHEMAS`.
+- A 1.x server can serve any hash. The operator downloads that schema once
+  per process and checks that it has `x:OAuthGrant` (added in 1.0.0) and
+  every property the gateway uses (`check_v1_schema`). Stalwart does not
+  state its version over HTTP, so the schema is the only signal.
+
+A new 1.x release needs no operator release. Run the contract and live
+suites against the new image anyway, because a 1.x release can change
+behavior without a schema change. A Stalwart 2.0 that keeps every property
+passes the check, so test it before you upgrade the clusters.
 
 ## Changing the chart
 

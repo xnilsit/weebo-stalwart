@@ -69,7 +69,7 @@ A lock that was applied is `Ready: True` (reason `Reconciled`), with
 `spec.state == Locked`, an up-to-date `observedGeneration` and
 `Ready == True`. A lock that failed stays `Ready: False` with its reason.
 
-Behind the scenes, Stalwart v0.16 has no "disabled" flag: the operator adds
+Behind the scenes, Stalwart has no "disabled" flag: the operator adds
 `authenticate`, `emailSend` and `emailReceive` to the account's disabled
 permissions, and removes only the entries it added on unlock.
 
