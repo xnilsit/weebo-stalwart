@@ -1,10 +1,11 @@
-//! Live SMTP checks against a real Stalwart v0.16.27 (`task
+//! Live SMTP checks against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27, `task
 //! stalwart:container:start ENGINE=podman`, then `task test:live-stalwart`):
 //! what a service account's published credentials do on submission (587,
 //! STARTTLS), and the spike's SMTP-level questions (RFC 0001 Q4, Q8), as
 //! tests that keep answering them on every new image.
 //!
-//! Observed on v0.16.27:
+//! Observed on v0.16.27, and the same on v1.0.0 and v1.1.1 (an unknown
+//! recipient is `5.1.1` there, `5.1.2` on v0.16):
 //!
 //! - The image listens on 25 (`smtp`) and 465 (`submissions`) only: 587 is
 //!   a `NetworkListener` the bootstrap creates (`.tasks/stalwart.yaml`),
@@ -506,7 +507,7 @@ async fn spike_must_match_sender_allows_the_address_and_its_aliases_only() {
 /// `RCPT TO` (on the MX and on submission) and bounced afterwards: the
 /// sender gets a DSN `5.5.0 This account is not authorized to receive
 /// email.`, the mailbox nothing (seen once unlocked). An unknown recipient
-/// is refused at `RCPT` (`550 5.1.2`).
+/// is refused at `RCPT` (`550 5.1.2` on v0.16, `550 5.1.1` on 1.x).
 #[tokio::test]
 #[ignore = "needs a real Stalwart: task stalwart:container:start"]
 async fn spike_a_recipient_that_may_not_receive_is_accepted_then_bounced() {
@@ -533,7 +534,10 @@ async fn spike_a_recipient_that_may_not_receive_is_accepted_then_bounced() {
     }
     let unknown = smtp.cmd(&format!("RCPT TO:<nobody@{name}>")).await;
     assert_eq!(unknown.0, 550, "{unknown:?}");
-    assert!(unknown.1.contains("5.1.2"), "{unknown:?}");
+    assert!(
+        unknown.1.contains("5.1.2") || unknown.1.contains("5.1.1"),
+        "{unknown:?}"
+    );
     smtp.cmd("QUIT").await;
 
     // Submission: accepted, then bounced to the sender.
@@ -993,9 +997,12 @@ async fn spike_the_operator_key_cannot_add_an_app_password() {
             json!({"accountId": svc, "create": {"p": {"description": "smtp"}}}),
         )
         .await;
-    assert_eq!(
-        direct["description"],
-        format!("You are not an owner of account {svc}"),
+    // v0.16: `forbidden`; 1.x: `accountNotFound` (the account isn't
+    // the key's to see).
+    let refusal = direct["description"].as_str().unwrap_or_default();
+    assert!(
+        refusal == format!("You are not an owner of account {svc}")
+            || refusal == "The accountId does not correspond to a valid account",
         "{direct}"
     );
     live.destroy_domain(&name).await;

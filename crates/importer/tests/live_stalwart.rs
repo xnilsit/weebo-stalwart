@@ -1,4 +1,4 @@
-//! The importer against a real Stalwart v0.16.27 (`task
+//! The importer against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27, `task
 //! stalwart:container:start ENGINE=podman`, then `task
 //! test:live-stalwart`): objects created before the operator — the
 //! phase-0 plan's domain and sending account, a mailbox the OpenID
