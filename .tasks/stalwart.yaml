@@ -37,8 +37,6 @@ version: "3"
 
 vars:
   IMAGE: '{{.IMAGE | default "docker.io/stalwartlabs/stalwart:v1.1.1"}}'
-  # 1.0.0 renamed NetworkListener.tlsImplicit.
-  IMPLICIT_TLS: '{{if contains ":v0.16." .IMAGE}}tlsImplicit{{else}}implicitTls{{end}}'
   NAME: weebo-stalwart-test
   PORT: '{{.STALWART_PORT | default "18080"}}'
   # SMTP for the SMTP-level live tests (RFC 0001 Q4, Q8): submission
@@ -112,8 +110,15 @@ tasks:
         [ -n "$app_token" ] || { echo "creating the App Password key failed" >&2; exit 1; }
         # The image listens on 25 (smtp) and 465 (submissions) only: the
         # instance's default submission (587, STARTTLS) needs a listener,
-        # bound at the next start (weebo-si must create it too).
-        listener=$(jmap "$admin" x:NetworkListener/set '{"create":{"s":{"name":"submission","bind":{"[::]:587":true},"protocol":"smtp","{{.IMPLICIT_TLS}}":false}}}' | field id)
+        # bound at the next start (weebo-si must create it too). 1.0.0
+        # renamed its `tlsImplicit`: the server is 1.x when it knows
+        # x:OAuthGrant (the image's tag may be a digest).
+        if jmap "$admin" x:OAuthGrant/query '{}' | jq -e '.methodResponses[0][0] == "x:OAuthGrant/query"' >/dev/null; then
+          implicit_tls=implicitTls
+        else
+          implicit_tls=tlsImplicit
+        fi
+        listener=$(jmap "$admin" x:NetworkListener/set "{\"create\":{\"s\":{\"name\":\"submission\",\"bind\":{\"[::]:587\":true},\"protocol\":\"smtp\",\"$implicit_tls\":false}}}" | field id)
         [ -n "$listener" ] || { echo "creating the submission listener failed" >&2; exit 1; }
         {{.ENGINE}} restart {{.NAME}} >/dev/null
         for i in $(seq 1 60); do
