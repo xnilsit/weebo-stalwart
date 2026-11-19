@@ -8,8 +8,8 @@ name: Publish
 # GitHub Release. The static variant is optional: a failure there leaves it
 # out of the release instead of blocking it.
 #
-# Images are amd64. `arm64: true` adds a separate arm64 image per variant
-# (`vX.Y.Z-arm64`, `vX.Y.Z-static-arm64`), built natively, never a gate.
+# Images are multi-arch (amd64, arm64), each platform built on a native
+# runner and joined into one tag per variant (`native: true`).
 #
 # The chart is named after the repository, the image after the repository
 # with `-operator`.
@@ -27,7 +27,8 @@ permissions: {}
 
 jobs:
   publish:
-    uses: weebo-si-operator/weebo-operator-kit/.github/workflows/publish.yml@v0.32.0
+    # Native multi-arch build: the kit fork's feat/native-multiarch, until upstream.
+    uses: xnilsit/weebo-operator-kit/.github/workflows/publish.yml@eb63ccde157971591d09616a4188cadc5d7624e9 # feat/native-multiarch
     permissions:
       contents: write
       packages: write
@@ -43,4 +44,5 @@ jobs:
       # The importer's --version: proves the image runs and ships it.
       smoke-entrypoint: /usr/local/bin/weebo-stalwart-importer
       smoke-args: --version
-      arm64: false
+      platforms: linux/amd64,linux/arm64
+      native: true
