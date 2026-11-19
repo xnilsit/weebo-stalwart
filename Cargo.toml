@@ -59,7 +59,7 @@ clap = { version = "4", features = ["derive", "env"] }
 async-trait = "0.1"
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "gzip"] }
 # The live SMTP tests' minimal client (STARTTLS, AUTH PLAIN).
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 base64 = "0.22"

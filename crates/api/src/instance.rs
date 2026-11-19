@@ -9,7 +9,7 @@ use crate::status::Status;
 pub use self::StalwartInstance as Instance;
 pub use self::StalwartInstanceSpec as InstanceSpec;
 
-/// Connection to one Stalwart server (v0.16). Cluster-scoped: an org-wide
+/// Connection to one Stalwart server (v0.16 or 1.x). Cluster-scoped: an org-wide
 /// piece of infrastructure, not owned by a namespace (a namespace's own
 /// server is a `StalwartLocalInstance`). `Ready` tells whether the server
 /// answers with the token below and speaks a management schema this

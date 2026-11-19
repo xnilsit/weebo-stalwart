@@ -1,4 +1,4 @@
-//! `x:AppPassword` on the wire, as v0.16.27 speaks it (RFC 0001 D24): the
+//! `x:AppPassword` on the wire, as v0.16.27 and v1.1.1 speak it (RFC 0001 D24): the
 //! App Passwords of the account `accountId` names — another account than
 //! the key's own, which needs `impersonate`.
 //!
@@ -17,6 +17,9 @@ use serde_json::{Value, json};
 
 pub const GET: &str = "x:AppPassword/get";
 pub const SET: &str = "x:AppPassword/set";
+
+/// The properties the gateway reads or writes.
+pub const PROPERTIES: &[&str] = &["id", "description", "permissions", "secret"];
 
 /// The creation key of the new App Password in the `/set` call.
 const NEW: &str = "p";

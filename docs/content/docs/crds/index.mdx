@@ -10,8 +10,8 @@ ideas behind the fields, start with [Concepts](/docs/concepts).
 
 | Kind | Scope | Description |
 | --- | --- | --- |
-| [`StalwartInstance`](/docs/crds/stalwartinstance) | Cluster | Connection to one Stalwart server (v0.16). |
-| [`StalwartLocalInstance`](/docs/crds/stalwartlocalinstance) | Namespaced | Connection to one Stalwart server (v0.16), owned by a namespace: its token is that namespace's, and only its objects use it unless `sharedWith` says otherwise. |
+| [`StalwartInstance`](/docs/crds/stalwartinstance) | Cluster | Connection to one Stalwart server (v0.16 or 1.x). |
+| [`StalwartLocalInstance`](/docs/crds/stalwartlocalinstance) | Namespaced | Connection to one Stalwart server (v0.16 or 1.x), owned by a namespace: its token is that namespace's, and only its objects use it unless `sharedWith` says otherwise. |
 | [`StalwartNamespacePolicy`](/docs/crds/stalwartnamespacepolicy) | Cluster | Namespace allow-list for the namespaced account kinds, enforced by the admission webhook (CREATE/UPDATE) and re-checked by every reconciler before any Stalwart call. |
 | [`StalwartDomain`](/docs/crds/stalwartdomain) | Cluster | A mail domain of a Stalwart instance (`x:Domain`). |
 | [`StalwartServiceAccount`](/docs/crds/stalwartserviceaccount) | Namespaced | A sending account of an application (`x:Account` of type `User`, authenticating with an App Password): the operator creates the account without any password, has Stalwart generate an App Password for it (granting `authenticate` and `emailSend` only) with the instance's `appPasswordTokenSecretRef` key, and writes the SMTP submission settings to `secretTargets` (`host`, `port`, `security`, `username` — the address —, `password` — the App Password —, `from`). |

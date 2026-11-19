@@ -9,7 +9,7 @@ use crate::status::Status;
 pub use self::StalwartLocalInstance as LocalInstance;
 pub use self::StalwartLocalInstanceSpec as LocalInstanceSpec;
 
-/// Connection to one Stalwart server (v0.16), owned by a namespace: its
+/// Connection to one Stalwart server (v0.16 or 1.x), owned by a namespace: its
 /// token is that namespace's, and only its objects use it unless
 /// `sharedWith` says otherwise. What an operator limited to one namespace
 /// uses. Objects bound to it are not governed by `StalwartNamespacePolicy`

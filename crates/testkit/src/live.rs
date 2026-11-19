@@ -1,4 +1,4 @@
-//! The live suites' Stalwart: a real server (v0.16.27, `task
+//! The live suites' Stalwart: a real server (v1.1.1 or v0.16.27, `task
 //! stalwart:container:start`), reached through `STALWART_URL` with the
 //! operator's API key `STALWART_TOKEN` and its App Password key
 //! `STALWART_APP_PASSWORD_TOKEN` (RFC 0001 D24) — exported, or read from
@@ -95,6 +95,15 @@ impl LiveStalwart {
         let (user, password) = self.admin.as_ref().expect("STALWART_ADMIN unset");
         self.call_as(Some((user, password)), None, method, args)
             .await
+    }
+
+    /// Whether the server is a 1.x: it knows `x:OAuthGrant` (added in
+    /// 1.0.0), which v0.16 answers with `unknownMethod`.
+    pub async fn is_v1(&self) -> bool {
+        self.admin_call("x:OAuthGrant/query", serde_json::json!({}))
+            .await
+            .get("ids")
+            .is_some()
     }
 
     /// One JMAP method call with the operator's own key, unchecked: for
@@ -212,17 +221,29 @@ impl LiveStalwart {
                 self.admin_call("x:Account/set", serde_json::json!({"destroy": accounts}))
                     .await;
             }
-            let keys = self
-                .admin_call(
-                    "x:DkimSignature/query",
-                    serde_json::json!({"filter": {"domainId": id}}),
-                )
-                .await["ids"]
-                .clone();
-            self.admin_call("x:DkimSignature/set", serde_json::json!({"destroy": keys}))
-                .await;
-            self.admin_call("x:Domain/set", serde_json::json!({"destroy": [id]}))
-                .await;
+            // `Automatic` DKIM may generate a key between the two calls
+            // (seen on 1.0.0 after a rename): retried.
+            for _ in 0..5 {
+                let keys = self
+                    .admin_call(
+                        "x:DkimSignature/query",
+                        serde_json::json!({"filter": {"domainId": id}}),
+                    )
+                    .await["ids"]
+                    .clone();
+                self.admin_call("x:DkimSignature/set", serde_json::json!({"destroy": keys}))
+                    .await;
+                let answer = self
+                    .admin_call("x:Domain/set", serde_json::json!({"destroy": [id]}))
+                    .await;
+                if answer["destroyed"]
+                    .as_array()
+                    .is_some_and(|d| d.contains(id))
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
         }
     }
 }

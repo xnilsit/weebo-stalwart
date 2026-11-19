@@ -4,6 +4,8 @@ rust = { version = "latest", components = ["rust-src", "rustfmt", "llvm-tools", 
 node = "24"
 task = "latest"
 gitleaks = "latest"
+# the Stalwart test container's bootstrap (`task stalwart:container:start`)
+jq = "latest"
 # `task audit`
 "aqua:EmbarkStudios/cargo-deny" = "latest"
 trivy = "latest"

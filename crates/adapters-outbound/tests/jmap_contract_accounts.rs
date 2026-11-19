@@ -1,7 +1,7 @@
 //! Contract of `JmapGateway` on `x:Account` and `x:MailingList` against a
 //! mock Stalwart: the requests it sends, the answers it maps, and one test
 //! per normalization of "Champs comparés" for these objects — the form
-//! Stalwart v0.16.27 stores (observed on the image, and checked again by
+//! Stalwart v0.16.27 and v1.1.1 store (observed on the images, and checked again by
 //! the live suite), read back, in sync.
 
 // Test helpers outside `#[test]`: a fixture that does not hold fails
@@ -152,6 +152,31 @@ async fn read_account(object: Value) -> application::ports::RemoteAccount {
         .expect("found")
 }
 
+/// An alias's flag: `enabled` on v0.16, `enable` on 1.x, unset enabled.
+#[tokio::test]
+async fn an_alias_flag_reads_in_both_spellings() {
+    let flags = |aliases: Value| async move {
+        let mut object = stored_mailbox();
+        object["aliases"] = aliases;
+        read_account(object)
+            .await
+            .aliases
+            .iter()
+            .map(|a| a.enabled)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        flags(json!({
+            "0": {"name": "a", "domainId": "c", "enable": false},
+            "1": {"name": "b", "domainId": "c", "enabled": false},
+            "2": {"name": "c", "domainId": "c", "enable": true},
+            "3": {"name": "d", "domainId": "c"},
+        }))
+        .await,
+        [false, false, true, true]
+    );
+}
+
 #[tokio::test]
 async fn a_service_account_is_created_without_credentials_and_disabled_logins() {
     let server = stalwart().await;
@@ -161,7 +186,7 @@ async fn a_service_account_is_created_without_credentials_and_disabled_logins() 
         json!({"accountId": "b", "create": {"new": {
             "@type": "User", "name": "forgejo", "domainId": "c",
             "roles": {"@type": "User"}, "encryptionAtRest": {"@type": "Disabled"},
-            "aliases": {"0": {"name": "noreply", "domainId": "c", "enabled": true}},
+            "aliases": {"0": {"name": "noreply", "domainId": "c"}},
             "permissions": {"@type": "Merge", "disabledPermissions": {
                 "imapAuthenticate": true, "pop3Authenticate": true, "sieveAuthenticate": true, "emailReceive": true,
             }},
@@ -185,7 +210,7 @@ async fn a_mailbox_is_created_inheriting_with_its_quota() {
         json!({"accountId": "b", "create": {"new": {
             "@type": "User", "name": "alice", "domainId": "c",
             "roles": {"@type": "User"}, "encryptionAtRest": {"@type": "Disabled"},
-            "aliases": {"0": {"name": "max", "domainId": "c", "enabled": true}},
+            "aliases": {"0": {"name": "max", "domainId": "c"}},
             "permissions": {"@type": "Inherit"},
             "quotas": {"maxDiskQuota": 2147483648u64},
             "locale": "fr-FR", "timeZone": "Europe/Paris",
@@ -602,7 +627,7 @@ async fn a_list_update_sends_the_drifted_fields_only() {
         "x:MailingList/get",
         json!({"ids": ["b"]}),
         json!({"list": [{"id": "b", "name": "team", "domainId": "c", "emailAddress": "team@weebo.internal",
-            "aliases": {"0": {"name": "crew", "domainId": "c", "enabled": true}},
+            "aliases": {"0": {"name": "crew", "domainId": "c"}},
             "recipients": {"bob@example.com": true}}]}),
     )
     .await;
@@ -638,7 +663,7 @@ async fn a_list_moved_to_another_domain_sends_its_name_domain_and_aliases() {
         "x:MailingList/set",
         json!({"accountId": "b", "update": {"b": {
             "name": "crew", "domainId": "d",
-            "aliases": {"0": {"name": "team", "domainId": "d", "enabled": true}},
+            "aliases": {"0": {"name": "team", "domainId": "d"}},
         }}}),
         json!({"notUpdated": {"b": {"type": "primaryKeyViolation", "properties": ["email"]}}}),
     )

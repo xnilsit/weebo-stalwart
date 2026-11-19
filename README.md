@@ -5,7 +5,7 @@ Kubernetes operator managing Stalwart objects as CRDs, built on
 
 | Kind                | Scope      | What it does                                                       |
 | ------------------- | ---------- | ------------------------------------------------------------------ |
-| `StalwartInstance` | Cluster    | A Stalwart v0.16 to drive: its URL and API key (`tokenSecretRef`), checked by `ping` and the schema hash, and the second key creating App Passwords (`appPasswordTokenSecretRef`) |
+| `StalwartInstance` | Cluster    | A Stalwart (1.x, or v0.16.25 to v0.16.27) to drive: its URL and API key (`tokenSecretRef`), checked by `ping` and the management schema, and the second key creating App Passwords (`appPasswordTokenSecretRef`) |
 | `StalwartLocalInstance` | Namespaced | The same, owned by a namespace (`sharedWith`) |
 | `StalwartNamespacePolicy` | Cluster | Which namespaces may create which account kinds, in which domains, with which names |
 | `StalwartDomain` | Cluster | A mail domain (`x:Domain`): created, kept in sync, never deleted (`deletionPolicy: Orphan`) |
@@ -56,7 +56,8 @@ task test:all # unit, contract and envtest tests — creates Cargo.lock: commit 
 The documentation site (`docs/`, `@weebo/operator-docs`) is published to
 GitHub Pages by `.github/workflows/docs-pages.yml`; see `docs/README.md`.
 
-Live tests against a real Stalwart v0.16.27:
+Live tests against a real Stalwart (v1.1.1 by default, another release
+with `IMAGE=docker.io/stalwartlabs/stalwart:<tag>`, for example v0.16.27):
 
 ```bash
 task stalwart:container:start ENGINE=podman  # writes .stalwart-test.env

@@ -1,6 +1,7 @@
 //! The JMAP transport of Stalwart's management API: `GET <url>/jmap/session`
 //! (the account the `x:` methods act in), `GET <url>/api/schema` (its
-//! hash, read from the redirect's `Location`), and one method call per
+//! hash, read from the redirect's `Location`), `GET <url>/api/schema/<hash>`
+//! (the schema itself, served gzipped), and one method call per
 //! `POST <url>/jmap`, authenticated by `Authorization: Bearer <API key>`
 //! (marked sensitive: never logged nor traced).
 //!
@@ -115,6 +116,11 @@ impl JmapClient {
             .redirect(reqwest::redirect::Policy::none())
     }
 
+    /// The server's base URL (`spec.url`, parsed).
+    pub(crate) fn base_url(&self) -> &str {
+        self.base.as_str()
+    }
+
     /// `{url}/<segments…>`, each segment percent-encoded.
     #[expect(
         clippy::expect_used,
@@ -172,8 +178,8 @@ impl JmapClient {
                 .cloned()
                 .ok_or_else(|| {
                     GatewayError::Api(format!(
-                        "the session has no {MANAGEMENT_CAPABILITY} account: not a Stalwart v0.16 \
-                         management endpoint"
+                        "the session has no {MANAGEMENT_CAPABILITY} account: not a Stalwart \
+                         management endpoint (v0.16 or 1.x)"
                     ))
                 })
         }
@@ -203,7 +209,7 @@ impl JmapClient {
                 .ok_or_else(|| {
                     GatewayError::UnsupportedVersion(format!(
                         "GET /api/schema answered {} without a redirect to the schema's hash: not \
-                         a Stalwart v0.16 server",
+                         a Stalwart v0.16 or 1.x server",
                         response.status()
                     ))
                 })?;
@@ -219,6 +225,28 @@ impl JmapClient {
             1,
             &[
                 KeyValue::new("method", "schema"),
+                KeyValue::new("outcome", outcome_of(&result)),
+            ],
+        );
+        result
+    }
+
+    /// The management schema `hash` names (`GET /api/schema/<hash>`): its
+    /// `objects` and their `fields`.
+    pub async fn schema(&self, hash: &str) -> Result<Value, GatewayError> {
+        let result = async {
+            let response = self
+                .send(self.http.get(self.url(&["api", "schema", hash])))
+                .await?;
+            json_body(response)
+                .await
+                .map_err(|e| GatewayError::Api(format!("unexpected schema {hash:?}: {e}")))
+        }
+        .await;
+        REQUESTS.add(
+            1,
+            &[
+                KeyValue::new("method", "schema_document"),
                 KeyValue::new("outcome", outcome_of(&result)),
             ],
         );

@@ -160,6 +160,46 @@ Gates: `task recu`, `task lint`, `task lint:helm`, `task test:all`,
   (`x:MtaInboundThrottle` "Sender IP throttle"); beyond, the connection is
   reset before the greeting — the test client retries.
 
+## Stalwart 1.x support (2026-11-18)
+
+Supported: v0.16.25–v0.16.27 and every 1.x. Live suites green on
+v0.16.27, v1.0.0 and v1.1.1.
+
+- **Gate (D13 for 1.x)**: Stalwart states its version nowhere over HTTP
+  (session, headers, schema, `x:ClusterNode`). A v0.16 hash must be in
+  `SUPPORTED_SCHEMAS`; any other hash is fetched once per process
+  (`GET /api/schema/<hash>`, always gzipped: reqwest's `gzip` feature) and
+  must have `x:OAuthGrant` (1.0.0) and every property the gateway reads or
+  writes (`check_v1_schema`, built from the `PROPERTIES` constants).
+  Verdicts cached per server base URL, for the hash it last served (max
+  256 servers, then cleared): not per hash alone, since the schema isn't
+  verified against its hash and a namespace's own server must not decide
+  for another. A 404 on the schema is
+  `UnsupportedVersion`.
+- **Wire**: `EmailAlias.enabled` → `enable`. Aliases are now sent without
+  the flag (both default to enabled); read as `enable`, then `enabled`.
+  `NetworkListener.tlsImplicit` → `implicitTls` (test bootstrap only).
+  Nothing else the gateway sends or reads moved.
+- **Operator key**: the User role differs per release (v0.16.27 244
+  permissions, 1.0.0 248, 1.1.1 253: 1.0.0 dropped
+  `jmapPrincipal{Create,Update,Destroy}`, `sysArchivedItemCreate`,
+  `sysSpamTrainingSampleUpdate`; 1.1.0 added `sysPasskey*`), and Stalwart
+  refuses unknown names. The bootstrap now reads the default User role(s)
+  and adds `deploy/stalwart/operator-api-key-extra-permissions.json`
+  (14 `sys*`); on v0.16.27 that equals the old 258-name list. weebo-si's
+  bootstrap Job must do the same.
+- **1.x escalation guard**: a key can't update nor destroy an account
+  holding a permission the key lacks ("You are not authorized to grant
+  permissions: …"). An account given `Admin` by hand is no longer
+  corrected: `InstanceUnauthorized` until an administrator takes the role
+  back.
+- **Q4 on 1.x**: unchanged (accepted at `RCPT`, bounced by DSN); an unknown
+  recipient is `550 5.1.1` (was `5.1.2`). An App Password created by a key
+  without `impersonate` is `accountNotFound` (was `forbidden`).
+- `maxAppPasswords` defaults to 5 per account on 1.x (`x:Authentication`).
+- Test helper `destroy_domain` retries: `Automatic` DKIM generated a key
+  between the key and domain destroys once on 1.0.0.
+
 ## D24 — service accounts by App Password (2026-10-19)
 
 Why: users log in through an OIDC default directory, which on the

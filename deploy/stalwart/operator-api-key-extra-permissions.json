@@ -1,0 +1,16 @@
+{
+  "sysAccountCreate": true,
+  "sysAccountDestroy": true,
+  "sysAccountGet": true,
+  "sysAccountQuery": true,
+  "sysAccountUpdate": true,
+  "sysDomainCreate": true,
+  "sysDomainGet": true,
+  "sysDomainQuery": true,
+  "sysDomainUpdate": true,
+  "sysMailingListCreate": true,
+  "sysMailingListDestroy": true,
+  "sysMailingListGet": true,
+  "sysMailingListQuery": true,
+  "sysMailingListUpdate": true
+}

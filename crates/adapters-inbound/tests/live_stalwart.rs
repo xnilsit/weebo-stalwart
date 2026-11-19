@@ -1,6 +1,6 @@
 //! Live end to end: envtest, the real controllers, the real factories
 //! (`JmapGatewayFactory` reading the token `Secret` on every call,
-//! `KubeClusterReader`), against a real Stalwart v0.16.27 (`task
+//! `KubeClusterReader`), against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27, `task
 //! stalwart:container:start ENGINE=podman`, then `task
 //! test:live-stalwart`). The gateway is only wrapped to count the writes:
 //! a reconcile with nothing to change writes nothing to the real server
@@ -498,6 +498,23 @@ async fn accounts_against_a_real_stalwart() {
     )
     .await;
     touch(&accounts, "alice", "drift").await;
+    let v1 = live.is_v1().await;
+    if v1 {
+        // 1.x: the key can't update an account holding permissions it
+        // lacks (the Admin role's): not Ready until an administrator takes
+        // the role back, then the quota is reverted.
+        testkit::polling::wait_for(&accounts, "alice", TIMEOUT, POLL, |a| {
+            let (status, reason) = ready(a.status.as_ref())?;
+            (status == "False" && reason == "InstanceUnauthorized").then_some(())
+        })
+        .await;
+        live.admin_call(
+            "x:Account/set",
+            serde_json::json!({"update": {&id: {"roles": {"@type": "User"}}}}),
+        )
+        .await;
+        touch(&accounts, "alice", "drift-after-role").await;
+    }
     let notes = tokio::time::timeout(TIMEOUT, async {
         loop {
             let notes = events_in(&client, "mail", "alice", "DriftCorrected").await;
@@ -510,7 +527,7 @@ async fn accounts_against_a_real_stalwart() {
     .await
     .expect("a DriftCorrected Event");
     assert!(
-        notes[0].contains("roles") && notes[0].contains("quotas"),
+        (v1 || notes[0].contains("roles")) && notes[0].contains("quotas"),
         "{notes:?}"
     );
     let fixed = live

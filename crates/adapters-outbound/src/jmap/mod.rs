@@ -1,6 +1,7 @@
-//! [`JmapGateway`]: the [`RemoteGateway`] over Stalwart v0.16's
-//! management API, JMAP `x:` objects (`POST <url>/jmap`). Wire rules the
-//! mapping follows (checked against v0.16.27, contract and live tests):
+//! [`JmapGateway`]: the [`RemoteGateway`] over Stalwart's management API
+//! (v0.16 and 1.x), JMAP `x:` objects (`POST <url>/jmap`). Wire rules the
+//! mapping follows (checked against v0.16.27 and v1.1.1, contract and live
+//! tests):
 //!
 //! - a set (`Set<…>`: a domain's `aliases`) is a map `{"value": true}`;
 //! - an object list (an account's `aliases`, `credentials`) is a map keyed
@@ -19,9 +20,11 @@
 //!   `email`).
 //!
 //! Before its first call, a gateway reads the session (the account the
-//! `x:` methods act in) and the schema's hash: an unknown hash fails every
-//! call with `UnsupportedVersion` — no write is attempted against a
-//! management schema this release wasn't tested with (D13).
+//! `x:` methods act in) and the schema's hash. A v0.16 hash must be one of
+//! [`SUPPORTED_SCHEMAS`]; any other hash must name a 1.x schema that has
+//! every property the gateway uses ([`check_v1_schema`]). Otherwise every
+//! call fails with `UnsupportedVersion`: no write is attempted against a
+//! management schema this release can't speak (D13).
 //!
 //! The service accounts' App Passwords go through a second client, with
 //! the instance's second key (`appPasswordTokenSecretRef`, D24), loaded
@@ -38,16 +41,20 @@ use application::ports::{
     GatewayFactoryError, MailingListPatch, RemoteAccount, RemoteDomain, RemoteGateway,
     RemoteMailingList,
 };
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 
 pub use client::{InvalidUrl, JmapClient, MAX_BODY_BYTES, REQUEST_TIMEOUT};
 
-/// The hashes of the management schemas this release speaks (base64url
-/// SHA-256, the last segment of `GET /api/schema`'s redirect), with the
-/// Stalwart releases observed serving each. The hash only moves when the
-/// schema does: v0.16.25 to v0.16.27 serve the same one, v0.16.0 another.
+/// The hashes of the v0.16 management schemas this release speaks
+/// (base64url SHA-256, the last segment of `GET /api/schema`'s redirect),
+/// with the Stalwart releases observed serving each. The hash only moves
+/// when the schema does: v0.16.25 to v0.16.27 serve the same one, v0.16.0
+/// another. 1.x schemas are checked by [`check_v1_schema`] instead.
 // RFC 0001 Q10: observed on the images, the hash is the schema's, not the
 // release's (v0.16.25, .26, .27 identical, v0.16.0 different): D13 costs a
 // release only when the schema moves. Kept as a constant, not a field.
@@ -55,6 +62,90 @@ pub const SUPPORTED_SCHEMAS: &[(&str, &str)] = &[(
     "Pzykh-dZ4p6qVJ7wVulQvyF7-1aRB8fI6GcjdJMWK2Q",
     "v0.16.25 – v0.16.27",
 )];
+
+/// The releases the gate accepts, for its error message.
+const SUPPORTED_RELEASES: &str = "v0.16.25 – v0.16.27, 1.x";
+
+/// An object 1.0.0 added to the schema: its presence tells a 1.x schema
+/// from a v0.16 one (Stalwart states its version nowhere over HTTP).
+pub const V1_MARKER: &str = "x:OAuthGrant";
+
+/// The properties the gateway reads or writes, per schema object (`id`
+/// and `@type` are the protocol's): a 1.x schema must define every one.
+fn v1_required() -> [(&'static str, &'static [&'static str]); 7] {
+    [
+        ("x:Domain", domain::PROPERTIES),
+        ("x:UserAccount", account::PROPERTIES),
+        // Sent at the creation of a `User` only.
+        ("x:UserAccount", &["encryptionAtRest"]),
+        ("x:GroupAccount", account::PROPERTIES),
+        ("x:MailingList", mailing_list::PROPERTIES),
+        ("x:AppPassword", app_password::PROPERTIES),
+        // The entries of `aliases` (accounts and lists).
+        ("x:EmailAlias", &["name", "domainId", "enable"]),
+    ]
+}
+
+// RFC 0001 D13 for 1.x: Stalwart's version is in no HTTP answer, and every
+// 1.x release that appends to the schema changes its hash (the OSS and
+// Enterprise editions differ too). A 1.x schema is append-only, so the gate
+// checks what the gateway needs, not the hash.
+/// `Ok` when `schema` (`GET /api/schema/<hash>`) is a 1.x schema defining
+/// every property the gateway uses; `Err` says what is missing.
+pub fn check_v1_schema(schema: &Value) -> Result<(), String> {
+    if schema.pointer(&format!("/objects/{V1_MARKER}")).is_none() {
+        return Err(format!("no {V1_MARKER} object: not a Stalwart 1.x schema"));
+    }
+    let mut missing = Vec::new();
+    for (object, properties) in v1_required() {
+        let defined = schema
+            .get("fields")
+            .and_then(|f| f.get(object))
+            .and_then(|f| f.get("properties"));
+        for property in properties.iter().filter(|p| !matches!(**p, "id" | "@type")) {
+            if defined.and_then(|d| d.get(property)).is_none() {
+                missing.push(format!("{object}.{property}"));
+            }
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("missing {}", missing.join(", ")))
+    }
+}
+
+/// The verdict of [`check_v1_schema`] per server (its base URL), for the
+/// hash it last served: each schema is fetched once per process and
+/// server. Keyed by server, not by hash alone: the operator doesn't verify
+/// that a schema matches its hash, so a namespace's own server
+/// (`StalwartLocalInstance`) must not decide the verdict of another's.
+static CHECKED_SCHEMAS: LazyLock<Mutex<HashMap<String, CheckedSchema>>> =
+    LazyLock::new(Mutex::default);
+/// A hash, and the verdict of its schema.
+type CheckedSchema = (String, Result<(), String>);
+/// At most this many servers are remembered; past it, every verdict is
+/// forgotten (the next reconciles fetch their schemas again).
+const MAX_CHECKED_SCHEMAS: usize = 256;
+
+fn checked_schema(server: &str, hash: &str) -> Option<Result<(), String>> {
+    CHECKED_SCHEMAS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(server)
+        .filter(|(checked, _)| checked == hash)
+        .map(|(_, verdict)| verdict.clone())
+}
+
+fn remember_schema(server: &str, hash: &str, verdict: Result<(), String>) {
+    let mut checked = CHECKED_SCHEMAS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if checked.len() >= MAX_CHECKED_SCHEMAS && !checked.contains_key(server) {
+        checked.clear();
+    }
+    checked.insert(server.to_string(), (hash.to_string(), verdict));
+}
 
 /// Reads the App Password key and builds its client: called once, the
 /// first time a gateway needs it.
@@ -129,17 +220,42 @@ impl JmapGateway {
                 let (account, hash) =
                     tokio::try_join!(self.client.account_id(), self.client.schema_hash())?;
                 if !SUPPORTED_SCHEMAS.iter().any(|(h, _)| *h == hash) {
-                    let supported: Vec<&str> = SUPPORTED_SCHEMAS.iter().map(|(_, v)| *v).collect();
-                    return Err(GatewayError::UnsupportedVersion(format!(
-                        "Stalwart serves management schema {hash:?}, which this operator release \
-                         was not tested against (supported: Stalwart {})",
-                        supported.join(", ")
-                    )));
+                    self.check_schema(&hash).await?;
                 }
                 Ok(account)
             })
             .await
             .map(String::as_str)
+    }
+
+    /// A hash outside [`SUPPORTED_SCHEMAS`]: its schema, read once per
+    /// process and server, must pass [`check_v1_schema`].
+    async fn check_schema(&self, hash: &str) -> Result<(), GatewayError> {
+        let server = self.client.base_url();
+        let verdict = match checked_schema(server, hash) {
+            Some(verdict) => verdict,
+            None => {
+                let schema = match self.client.schema(hash).await {
+                    Ok(schema) => schema,
+                    // Redirected to a schema it doesn't serve.
+                    Err(GatewayError::NotFound(why)) => {
+                        return Err(GatewayError::UnsupportedVersion(format!(
+                            "Stalwart doesn't serve its management schema {hash:?}: {why}"
+                        )));
+                    }
+                    Err(e) => return Err(e),
+                };
+                let verdict = check_v1_schema(&schema);
+                remember_schema(server, hash, verdict.clone());
+                verdict
+            }
+        };
+        verdict.map_err(|why| {
+            GatewayError::UnsupportedVersion(format!(
+                "Stalwart serves management schema {hash:?}, which this operator release can't \
+                 speak: {why} (supported: Stalwart {SUPPORTED_RELEASES})"
+            ))
+        })
     }
 
     /// `<object>/get` of one id, restricted to `properties`: the object, or

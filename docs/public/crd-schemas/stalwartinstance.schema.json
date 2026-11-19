@@ -5,7 +5,7 @@
   "served": [
     "v1alpha1"
   ],
-  "description": "Connection to one Stalwart server (v0.16). Cluster-scoped: an org-wide\npiece of infrastructure, not owned by a namespace (a namespace's own\nserver is a `StalwartLocalInstance`). `Ready` tells whether the server\nanswers with the token below and speaks a management schema this\noperator release supports.",
+  "description": "Connection to one Stalwart server (v0.16 or 1.x). Cluster-scoped: an org-wide\npiece of infrastructure, not owned by a namespace (a namespace's own\nserver is a `StalwartLocalInstance`). `Ready` tells whether the server\nanswers with the token below and speaks a management schema this\noperator release supports.",
   "properties": {
     "appPasswordTokenSecretRef": {
       "description": "A second API key of Stalwart, on the same account as the one above:\nthe one that creates, rotates and revokes the App Passwords of the\n`StalwartServiceAccount`s (permissions `authenticate`,\n`impersonate`, `emailSend` and `sysAppPassword*` only). Read on\nevery reconcile of a `StalwartServiceAccount`; unset, those fail\nwith `TokenSecretMissing` (the other kinds don't use it).",

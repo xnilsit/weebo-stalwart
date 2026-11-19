@@ -1,7 +1,8 @@
-//! `x:Account` (`User`, `Group`) on the wire, as v0.16.27 speaks it:
+//! `x:Account` (`User`, `Group`) on the wire, as v0.16.27 and v1.1.1
+//! speak it:
 //!
 //! - `aliases` is an object list, `{"0": {"name", "domainId", "enabled",
-//!   "description"}}`, sent whole;
+//!   "description"}}` (`enable` on 1.x), sent whole without the flag;
 //! - `roles`, `permissions`, `encryptionAtRest` are variants (`@type`);
 //!   `permissions: Merge` carries `enabledPermissions`/`disabledPermissions`
 //!   sets, `Replace` a `permissions` set; a `Group` has no
@@ -53,7 +54,10 @@ pub fn aliases(aliases: &[Alias]) -> Value {
             .map(|(i, a)| {
                 (
                     i.to_string(),
-                    json!({"name": a.name, "domainId": a.domain_id, "enabled": true}),
+                    // No enable flag: v0.16 names it `enabled`, 1.x `enable`;
+                    // both reset an entry sent without it to enabled (live:
+                    // `a_disabled_alias_is_enabled_again`).
+                    json!({"name": a.name, "domainId": a.domain_id}),
                 )
             })
             .collect(),
@@ -178,9 +182,11 @@ pub fn aliases_from_wire(method: &str, object: &Value) -> Result<Vec<RemoteAlias
             RemoteAlias {
                 name: name.to_string(),
                 domain_id: domain_id.to_string(),
-                // Unset: enabled, Stalwart's default.
+                // `enable` on 1.x, `enabled` on v0.16; unset: enabled,
+                // Stalwart's default.
                 enabled: alias
-                    .get("enabled")
+                    .get("enable")
+                    .or_else(|| alias.get("enabled"))
                     .and_then(Value::as_bool)
                     .unwrap_or(true),
             },

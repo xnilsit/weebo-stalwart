@@ -1,7 +1,7 @@
 //! Contract of `JmapGateway` against a mock Stalwart: the requests it
 //! sends (paths, Bearer, JMAP shape), the answers it maps, and the
 //! normalizations of "Champs comparés" — each: the form Stalwart v0.16.27
-//! stores, read back, no drift (the live suite checks the same against
+//! stores (v1.1.1 stores the same), read back, no drift (the live suite checks the same against
 //! the real image).
 
 // Test helpers outside `#[test]`: a fixture that does not hold fails
@@ -128,21 +128,153 @@ async fn ping_checks_the_token_and_the_schema() {
     gateway(&server).ping().await.unwrap();
 }
 
-#[tokio::test]
-async fn an_unknown_schema_is_an_unsupported_version_and_nothing_is_called() {
-    let server = stalwart("aJJKvnpsjjwAEzJ0eKDWdfSLK_RvBKsLhk8BwCq-7qA").await;
+/// `GET /api/schema/<hash>` answered with `schema`, `times` times.
+async fn schema_document(server: &MockServer, hash: &str, schema: Value, times: u64) {
+    Mock::given(method("GET"))
+        .and(path(format!("/api/schema/{hash}").as_str()))
+        .and(header("authorization", format!("Bearer {TOKEN}").as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(schema))
+        .expect(times)
+        .mount(server)
+        .await;
+}
+
+/// What a Stalwart 1.x schema holds of the objects the gateway uses (the
+/// real one, v1.1.1, defines many more objects and properties).
+fn v1_schema() -> Value {
+    let props =
+        |names: &[&str]| -> Value { names.iter().map(|n| (n.to_string(), json!({}))).collect() };
+    let account = [
+        "name",
+        "domainId",
+        "emailAddress",
+        "aliases",
+        "roles",
+        "permissions",
+        "quotas",
+        "locale",
+        "timeZone",
+    ];
+    let mut user = account.to_vec();
+    user.push("encryptionAtRest");
+    json!({
+        "objects": {"x:OAuthGrant": {"type": "object"}, "x:Domain": {"type": "object"}},
+        "fields": {
+            "x:Domain": {"properties": props(&[
+                "name", "aliases", "catchAllAddress", "allowRelaying", "subAddressing",
+                "dkimManagement", "dnsManagement", "certificateManagement", "enable",
+            ])},
+            "x:UserAccount": {"properties": props(&user)},
+            "x:GroupAccount": {"properties": props(&account)},
+            "x:MailingList": {"properties": props(&[
+                "name", "domainId", "emailAddress", "aliases", "recipients",
+            ])},
+            "x:AppPassword": {"properties": props(&["description", "permissions", "secret"])},
+            "x:EmailAlias": {"properties": props(&["name", "domainId", "enable"])},
+        },
+    })
+}
+
+/// No call reaches `POST /jmap`.
+async fn no_method_call(server: &MockServer) {
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
-        .mount(&server)
+        .mount(server)
         .await;
+}
+
+#[tokio::test]
+async fn a_v1_schema_is_accepted_and_read_once_per_process() {
+    // Each test owns its hash: the verdicts are kept per process.
+    let hash = "v1-accepted-QmY2xZ7Wb3a0pQ";
+    let server = stalwart(hash).await;
+    schema_document(&server, hash, v1_schema(), 1).await;
+    gateway(&server).ping().await.unwrap();
+    // A second gateway (the next reconcile) doesn't fetch it again.
+    gateway(&server).ping().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_server_serving_a_bad_schema_under_a_hash_doesnt_decide_for_another() {
+    // A namespace's own server claims the real server's hash with a schema
+    // that fails the check: the real one is still read and accepted.
+    let hash = "v1-shared-hash-Wn5pL1";
+    let rogue = stalwart(hash).await;
+    let mut bad = v1_schema();
+    bad["objects"]
+        .as_object_mut()
+        .unwrap()
+        .remove("x:OAuthGrant");
+    schema_document(&rogue, hash, bad, 1).await;
+    assert!(matches!(
+        gateway(&rogue).ping().await,
+        Err(GatewayError::UnsupportedVersion(_))
+    ));
+    let real = stalwart(hash).await;
+    schema_document(&real, hash, v1_schema(), 1).await;
+    gateway(&real).ping().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_schema_without_the_v1_marker_is_an_unsupported_version_and_nothing_is_called() {
+    // A v0.16 hash the release doesn't know (v0.16.0's schema, say).
+    let hash = "aJJKvnpsjjwAEzJ0eKDWdfSLK_RvBKsLhk8BwCq-7qA";
+    let server = stalwart(hash).await;
+    let mut schema = v1_schema();
+    schema["objects"]
+        .as_object_mut()
+        .unwrap()
+        .remove("x:OAuthGrant");
+    schema_document(&server, hash, schema, 1).await;
+    no_method_call(&server).await;
     let gw = gateway(&server);
-    assert!(
-        matches!(gw.ping().await, Err(GatewayError::UnsupportedVersion(m)) if m.contains("aJJKvnps"))
-    );
+    assert!(matches!(
+        gw.ping().await,
+        Err(GatewayError::UnsupportedVersion(m))
+            if m.contains("aJJKvnps") && m.contains("not a Stalwart 1.x schema")
+    ));
     assert!(matches!(
         gw.get_domain("b").await,
         Err(GatewayError::UnsupportedVersion(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_v1_schema_missing_a_property_is_an_unsupported_version() {
+    let hash = "v1-missing-property-Tz8rKc2";
+    let server = stalwart(hash).await;
+    let mut schema = v1_schema();
+    schema["fields"]["x:EmailAlias"]["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("enable");
+    schema["fields"]
+        .as_object_mut()
+        .unwrap()
+        .remove("x:MailingList");
+    schema_document(&server, hash, schema, 1).await;
+    no_method_call(&server).await;
+    let gw = gateway(&server);
+    assert!(matches!(
+        gw.ping().await,
+        Err(GatewayError::UnsupportedVersion(m))
+            if m.contains("x:MailingList.recipients") && m.contains("x:EmailAlias.enable")
+    ));
+    // The verdict is kept: the next gateway doesn't fetch the schema again.
+    assert!(matches!(
+        gateway(&server).ping().await,
+        Err(GatewayError::UnsupportedVersion(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_schema_the_server_doesnt_serve_is_an_unsupported_version() {
+    let server = stalwart("v1-not-served-Hq4mN0").await;
+    no_method_call(&server).await;
+    assert!(matches!(
+        gateway(&server).ping().await,
+        Err(GatewayError::UnsupportedVersion(m)) if m.contains("doesn't serve")
     ));
 }
 

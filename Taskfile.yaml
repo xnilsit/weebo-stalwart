@@ -121,8 +121,9 @@ tasks:
 
   test:live-stalwart:
     desc: >
-      The live suites against a real Stalwart v0.16.27 (ignored by default):
-      the JMAP gateway, SMTP submission and delivery (RFC 0001 Q4, Q8),
+      The live suites against the Stalwart the test container runs
+      (v1.1.1 by default, IMAGE=… for another; ignored by default): the
+      JMAP gateway, SMTP submission and delivery (RFC 0001 Q4, Q8),
       then the controllers end to end on envtest, then the importer
       linking pre-existing objects. Needs
       STALWART_URL, STALWART_TOKEN and STALWART_APP_PASSWORD_TOKEN —
