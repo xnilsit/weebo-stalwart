@@ -55,7 +55,8 @@ pub fn aliases(aliases: &[Alias]) -> Value {
                 (
                     i.to_string(),
                     // No enable flag: v0.16 names it `enabled`, 1.x `enable`;
-                    // both default to enabled.
+                    // both reset an entry sent without it to enabled (live:
+                    // `a_disabled_alias_is_enabled_again`).
                     json!({"name": a.name, "domainId": a.domain_id}),
                 )
             })

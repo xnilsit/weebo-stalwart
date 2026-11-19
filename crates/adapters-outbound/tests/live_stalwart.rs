@@ -415,6 +415,38 @@ mod accounts {
         live.destroy_domain(&name).await;
     }
 
+    /// An alias disabled by hand (`enabled` on v0.16, `enable` on 1.x) is
+    /// drift, and the correction enables it again.
+    #[tokio::test]
+    #[ignore = "needs a real Stalwart: task stalwart:container:start"]
+    async fn a_disabled_alias_is_enabled_again() {
+        let live = LiveStalwart::from_env();
+        let gw = gateway(&live);
+        let (name, domain) = domain(&gw, "alias").await;
+        let desired = DesiredAccount::new(AccountType::User, "bob", &domain, &s(&["robert"]));
+        let id = gw.create_account(&desired).await.unwrap();
+        let flag = if live.is_v1().await {
+            "enable"
+        } else {
+            "enabled"
+        };
+        live.admin_call(
+            "x:Account/set",
+            json!({"update": {&id: {
+                "aliases": {"0": {"name": "robert", "domainId": &domain, flag: false}},
+            }}}),
+        )
+        .await;
+        let edited = gw.get_account(&id).await.unwrap().unwrap();
+        assert!(!edited.aliases[0].enabled, "{edited:?}");
+        let (patch, drift) = account_patch(&desired, &edited);
+        assert_eq!(drift.fields(), ["aliases"]);
+        gw.update_account(&id, &patch).await.unwrap();
+        let fixed = gw.get_account(&id).await.unwrap().unwrap();
+        assert!(account_patch(&desired, &fixed).1.is_empty(), "{fixed:?}");
+        live.destroy_domain(&name).await;
+    }
+
     /// A mailbox's quota (bytes), locale and time zone, read back in sync;
     /// locked, every login is refused — App Passwords included — and
     /// unlocked, both work again (RFC 0001, "Verrouillage").
