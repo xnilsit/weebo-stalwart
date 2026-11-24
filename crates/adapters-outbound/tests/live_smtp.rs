@@ -1,10 +1,10 @@
-//! Live SMTP checks against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27, `task
+//! Live SMTP checks against a real Stalwart (v1.2.0, v1.1.1, v1.0.0 or v0.16.27, `task
 //! stalwart:container:start ENGINE=podman`, then `task test:live-stalwart`):
 //! what a service account's published credentials do on submission (587,
 //! STARTTLS), and the spike's SMTP-level questions (RFC 0001 Q4, Q8), as
 //! tests that keep answering them on every new image.
 //!
-//! Observed on v0.16.27, and the same on v1.0.0 and v1.1.1 (an unknown
+//! Observed on v0.16.27, and the same on v1.0.0, v1.1.1 and v1.2.0 (an unknown
 //! recipient is `5.1.1` there, `5.1.2` on v0.16):
 //!
 //! - The image listens on 25 (`smtp`) and 465 (`submissions`) only: 587 is

@@ -52,7 +52,7 @@ run `publish.yml` manually with that tag.
 | Generated files up to date: CRDs, their chart copies, the docs' CRD and reference pages | `ci.yml` job `regen-and-diff` |
 | The docs site builds and lints | `ci.yml` job `docs` |
 | Both images build and run (`weebo-stalwart-importer --version`) | `ci.yml` job `image-build` |
-| Against a real Stalwart (v1.1.1, then v1.0.0 and v0.16.27 with `IMAGE=`): gateway, controllers, importer | `task test:live-stalwart` |
+| Against a real Stalwart (v1.2.0, then v1.1.1, v1.0.0 and v0.16.27 with `IMAGE=`): gateway, controllers, importer | `task test:live-stalwart` |
 
 For the live suites: `task stalwart:container:start ENGINE=podman` (writes
 `.stalwart-test.env`), `task test:live-stalwart`, then

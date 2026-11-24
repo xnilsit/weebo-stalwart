@@ -16,13 +16,13 @@ version: "3"
 # listener on 587 (STARTTLS; the image has 25 and 465 only), bound by a
 # restart.
 #
-# IMAGE selects the Stalwart: v1.1.1 by default,
+# IMAGE selects the Stalwart: v1.2.0 by default,
 # `IMAGE=docker.io/stalwartlabs/stalwart:v0.16.27` for the v0.16 line.
 #
 # RFC 0001 Q1: observed on v0.16.27, `authenticate` is all the session,
 # `POST /jmap` and `/api/schema` need — but a key can't grant a permission
 # it lacks, and creating a `User` account grants the User role's: the key
-# holds those (244 on v0.16.27, 248 on 1.0.0, 253 on 1.1.1;
+# holds those (244 on v0.16.27, 248 on 1.0.0, 253 on 1.1.1, 268 on 1.2.0;
 # sysApiKey*/sysAppPassword* of its own account and jmap* included; no
 # `impersonate`, no settings) plus sys{Domain,Account,MailingList}* minus
 # sysDomainDestroy.
@@ -36,7 +36,7 @@ version: "3"
 # STALWART_SMTP).
 
 vars:
-  IMAGE: '{{.IMAGE | default "docker.io/stalwartlabs/stalwart:v1.1.1"}}'
+  IMAGE: '{{.IMAGE | default "docker.io/stalwartlabs/stalwart:v1.2.0"}}'
   NAME: weebo-stalwart-test
   PORT: '{{.STALWART_PORT | default "18080"}}'
   # SMTP for the SMTP-level live tests (RFC 0001 Q4, Q8): submission
@@ -52,7 +52,7 @@ vars:
 
 tasks:
   container:start:
-    desc: "Run a disposable Stalwart (v1.1.1, IMAGE=… for v0.16.27; docker/podman, ENGINE=podman, localhost:18080, SMTP 10587/10025) with the operator's account and its two API keys; writes .stalwart-test.env for the live tests"
+    desc: "Run a disposable Stalwart (v1.2.0, IMAGE=… for v0.16.27; docker/podman, ENGINE=podman, localhost:18080, SMTP 10587/10025) with the operator's account and its two API keys; writes .stalwart-test.env for the live tests"
     vars:
       ENGINE: '{{.ENGINE | default "docker"}}'
     cmds:

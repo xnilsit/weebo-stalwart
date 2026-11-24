@@ -1,4 +1,4 @@
-//! The live suites' Stalwart: a real server (v1.1.1 or v0.16.27, `task
+//! The live suites' Stalwart: a real server (v1.2.0 or v0.16.27, `task
 //! stalwart:container:start`), reached through `STALWART_URL` with the
 //! operator's API key `STALWART_TOKEN` and its App Password key
 //! `STALWART_APP_PASSWORD_TOKEN` (RFC 0001 D24) — exported, or read from

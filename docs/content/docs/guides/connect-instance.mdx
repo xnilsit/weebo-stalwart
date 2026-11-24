@@ -120,7 +120,9 @@ holds:
 - `sysMailingList{Get,Query,Create,Update,Destroy}`.
 
 The User role is not the same in every Stalwart release: 1.0.0 removed
-some names and added others, and 1.1.0 added `sysPasskey*`. Stalwart
+some names and added others, 1.1.0 added `sysPasskey*`, and 1.2.0 added
+`sysMailRule*`, `sysBlockedSender*`, `sysSafeSender*` and
+`sysCalendarSettings*`. Stalwart
 refuses a key that names a permission it does not know. So read the role
 from the server when you create the key: `x:Authentication/get` gives
 `defaultUserRoleIds`, and `x:Role/get` on those ids gives their
@@ -128,10 +130,16 @@ from the server when you create the key: `x:Authentication/get` gives
 `deploy/stalwart/operator-api-key-extra-permissions.json`.
 `.tasks/stalwart.yaml` shows the whole bootstrap.
 
-If you add permissions to the User role, for example after an upgrade with
-`STALWART_UPDATE_ROLE_PERMISSIONS=true`, create the key again. Otherwise
+If you add permissions to the User role, create the key again. Otherwise
 the operator cannot create `User` accounts, because a key cannot grant a
-permission that it does not hold.
+permission that it does not hold. On 1.x it also cannot update or delete
+the existing accounts (see below).
+
+An upgrade to 1.2.0 adds permissions to the User role when you restart
+the server once with `STALWART_UPDATE_ROLE_PERMISSIONS=true`, or when an
+administrator adds them by hand. Do both steps together: add the
+permissions to the role, then create the operator key again from the
+updated role.
 
 On Stalwart 1.x, a key also cannot update or delete an account that holds
 a permission that the key does not hold. If someone gives a managed account

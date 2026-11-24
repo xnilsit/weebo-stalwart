@@ -56,7 +56,7 @@ task test:all # unit, contract and envtest tests — creates Cargo.lock: commit 
 The documentation site (`docs/`, `@weebo/operator-docs`) is published to
 GitHub Pages by `.github/workflows/docs-pages.yml`; see `docs/README.md`.
 
-Live tests against a real Stalwart (v1.1.1 by default, another release
+Live tests against a real Stalwart (v1.2.0 by default, another release
 with `IMAGE=docker.io/stalwartlabs/stalwart:<tag>`, for example v0.16.27):
 
 ```bash

@@ -1,6 +1,6 @@
 //! Live end to end: envtest, the real controllers, the real factories
 //! (`JmapGatewayFactory` reading the token `Secret` on every call,
-//! `KubeClusterReader`), against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27, `task
+//! `KubeClusterReader`), against a real Stalwart (v1.2.0, v1.1.1, v1.0.0 or v0.16.27, `task
 //! stalwart:container:start ENGINE=podman`, then `task
 //! test:live-stalwart`). The gateway is only wrapped to count the writes:
 //! a reconcile with nothing to change writes nothing to the real server

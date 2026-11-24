@@ -14,7 +14,7 @@ Deployment and its admission webhook. Stalwart itself is not part of it.
   issues the admission webhook's TLS certificate. You can do without it and
   provide the certificate yourself (`webhook.certManager.enabled=false`,
   `webhook.tls.secretName`, `webhook.caBundle`).
-- **Stalwart v0.16.25 to v0.16.27, or 1.x** (tested on 1.0.0 and 1.1.1).
+- **Stalwart v0.16.25 to v0.16.27, or 1.x** (tested on 1.0.0, 1.1.1 and 1.2.0).
   The operator checks the management schema that the server serves
   (`GET /api/schema`). A v0.16 schema must be one that this release knows.
   A 1.x schema must define every property that the operator uses. If the

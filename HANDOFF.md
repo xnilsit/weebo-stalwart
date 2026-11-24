@@ -163,7 +163,8 @@ Gates: `task recu`, `task lint`, `task lint:helm`, `task test:all`,
 ## Stalwart 1.x support (2026-11-18)
 
 Supported: v0.16.25–v0.16.27 and every 1.x. Live suites green on
-v0.16.27, v1.0.0 and v1.1.1.
+v0.16.27, v1.0.0, v1.1.1 and v1.2.0 (the test container's default since
+2026-11-24).
 
 - **Gate (D13 for 1.x)**: Stalwart states its version nowhere over HTTP
   (session, headers, schema, `x:ClusterNode`). A v0.16 hash must be in
@@ -197,6 +198,16 @@ v0.16.27, v1.0.0 and v1.1.1.
   recipient is `550 5.1.1` (was `5.1.2`). An App Password created by a key
   without `impersonate` is `accountNotFound` (was `forbidden`).
 - `maxAppPasswords` defaults to 5 per account on 1.x (`x:Authentication`).
+- **1.2.0**: the User role has 268 permissions (+ `sysMailRule*`,
+  `sysBlockedSender*`, `sysSafeSender*`, `sysCalendarSettings*`). A server
+  upgraded from an earlier release gets them only by hand or by one restart
+  with `STALWART_UPDATE_ROLE_PERMISSIONS=true`; the operator key must be
+  created again from the updated role, or the 1.x escalation guard refuses
+  updates to the accounts holding them (inferred, not tested on an upgraded
+  server). Mailing list `recipients` are now stored lowercased (were stored
+  as sent). A domain alias needs a known TLD: `.example` and `weebo.poc` are
+  refused ("Invalid domain name"); `.test`, `.internal` and `example.com`
+  work. Nothing the gateway sends or reads moved.
 - Test helper `destroy_domain` retries: `Automatic` DKIM generated a key
   between the key and domain destroys once on 1.0.0.
 
@@ -281,7 +292,8 @@ on the local instance, D18 three times). New:
 ## RFC discrepancies (the RFC is not edited)
 
 - `weebo.poc` is refused by Stalwart (unknown TLD); `.internal`, `.lan`,
-  `.test`, `.home.arpa` work (or `weebo.poc` as a domain *alias*).
+  `.test`, `.home.arpa` work (or `weebo.poc` as a domain *alias*, before
+  1.2.0).
 - The operator key needs the User role's 258 permissions, `sysApiKey*`,
   `sysAppPassword*`, `jmapEmail*` included (a key can't grant what it lacks)
   — contrary to *Sécurité*; and `sysAccountUpdate` sets any account's
