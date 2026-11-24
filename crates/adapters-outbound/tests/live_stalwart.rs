@@ -1,4 +1,4 @@
-//! Live contract of `JmapGateway` against a real Stalwart (v1.1.1, v1.0.0 or v0.16.27:
+//! Live contract of `JmapGateway` against a real Stalwart (v1.2.0, v1.1.1, v1.0.0 or v0.16.27:
 //! `task stalwart:container:start ENGINE=podman`, then
 //! `task test:live-stalwart`): every normalization of "Champs comparés"
 //! read back from the server itself — a domain created then read compares
@@ -95,7 +95,7 @@ async fn a_created_domain_reads_back_in_sync_then_drift_is_corrected() {
     live.admin_call(
         "x:Domain/set",
         json!({"update": {&id: {
-            "aliases": {format!("ALIAS.{name}"): true, format!("other-{name}"): true, "by-hand.example": true},
+            "aliases": {format!("ALIAS.{name}"): true, format!("other-{name}"): true, "by-hand.test": true},
             "subAddressing": {"@type": "Enabled"},
             "allowRelaying": true,
             "dkimManagement/rotateAfter": 86400000,
@@ -550,7 +550,8 @@ mod accounts {
         live.destroy_domain(&name).await;
     }
 
-    /// A list's recipients kept in the case sent compare as a set; an
+    /// A list's recipients compare as a lowercased set, whether the server
+    /// keeps the case sent (up to 1.1) or lowercases them (1.2.0); an
     /// address is unique across lists and accounts.
     #[tokio::test]
     #[ignore = "needs a real Stalwart: task stalwart:container:start"]
@@ -565,14 +566,20 @@ mod accounts {
             &s(&["Alice@Example.com", "bob@example.com"]),
         );
         let list = gw.create_mailing_list(&desired).await.unwrap();
-        // Stored as sent: send another case behind the operator's back.
+        // Another case behind the operator's back.
         live.admin_call(
             "x:MailingList/set",
             json!({"update": {&list: {"recipients": {"ALICE@example.com": true, "bob@example.com": true}}}}),
         )
         .await;
         let stored = gw.get_mailing_list(&list).await.unwrap().unwrap();
-        assert!(stored.recipients.contains(&"ALICE@example.com".to_string()));
+        assert!(
+            stored
+                .recipients
+                .iter()
+                .any(|r| r == "ALICE@example.com" || r == "alice@example.com"),
+            "{stored:?}"
+        );
         assert!(
             mailing_list_patch(&desired, &stored).1.is_empty(),
             "{stored:?}"
