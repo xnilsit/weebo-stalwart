@@ -9,7 +9,9 @@
 //!
 //! Present, the domain is compared with the spec on the fields the
 //! operator owns (`domain::mail_domain`) and only the drifted ones are
-//! sent; nothing at all when in sync. A rename moves every address of the
+//! sent; nothing at all when in sync. With `dns.management: Automatic`,
+//! the `x:DnsServer` of `dns.serverSelector` is looked up on every
+//! reconcile (`DnsServerNotFound` unless exactly one matches). A rename moves every address of the
 //! domain: it needs `allow-disruptive-update`. The CR is never deleted
 //! remotely (`deletionPolicy: Orphan` only, D18): the finalizer only
 //! releases it.
@@ -18,11 +20,12 @@ use api::Domain;
 use domain::Failure;
 use domain::RemoteWrite;
 use domain::error::ReasonCode;
-use domain::mail_domain::domain_patch;
+use domain::mail_domain::{DnsManagement, domain_patch};
 
 use crate::ports::{BoundInstance, ClaimKind, ClusterReader, GatewayError, RemoteGateway};
 use crate::use_cases::admission::check_domain;
 use crate::use_cases::{Outcome, cluster_failure};
+use std::collections::BTreeMap;
 
 /// `StalwartDomain/<name>`: how claims name the CR.
 pub fn claim_id(domain: &Domain) -> String {
@@ -52,6 +55,29 @@ async fn claimed_elsewhere(
     }))
 }
 
+/// The id of the one `x:DnsServer` whose fields include every entry of
+/// `selector`.
+async fn dns_server(
+    gateway: &dyn RemoteGateway,
+    selector: &BTreeMap<String, String>,
+) -> Result<String, Failure> {
+    let servers = gateway.list_dns_servers().await?;
+    let mut matching = servers
+        .iter()
+        .filter(|s| selector.iter().all(|(k, v)| s.fields.get(k) == Some(v)));
+    match (matching.next(), matching.next()) {
+        (Some(server), None) => Ok(server.id.clone()),
+        (None, _) => Err(Failure::new(
+            ReasonCode::DnsServerNotFound,
+            format!("spec.dns.serverSelector: no x:DnsServer matches {selector:?}"),
+        )),
+        (Some(_), Some(_)) => Err(Failure::new(
+            ReasonCode::DnsServerNotFound,
+            format!("spec.dns.serverSelector: more than one x:DnsServer matches {selector:?}"),
+        )),
+    }
+}
+
 pub async fn reconcile_domain(
     domain: &Domain,
     instance: &BoundInstance,
@@ -76,7 +102,13 @@ async fn reconcile(
     cluster: &dyn ClusterReader,
 ) -> Result<Outcome, Box<Outcome>> {
     check_domain(domain).map_err(fail)?;
-    let desired = domain.desired();
+    let mut desired = domain.desired();
+    if let Some(dns) = domain.automatic_dns() {
+        let server = dns_server(gateway, &dns.server_selector)
+            .await
+            .map_err(fail)?;
+        desired = desired.with_dns(DnsManagement::automatic(&server, &dns.records));
+    }
     let status = domain.status.as_ref();
     let me = claim_id(domain);
 
@@ -230,6 +262,76 @@ mod tests {
         let quiet = reconcile_domain(&d, &main(), &gateway, &cluster).await;
         assert_eq!(quiet.write, None);
         assert!(gateway.writes().is_empty());
+    }
+
+    fn automatic(name: &str, records: serde_json::Value) -> Domain {
+        let mut d = domain(name);
+        d.spec.dns = serde_json::from_value(serde_json::json!({
+            "management": "Automatic",
+            "serverSelector": {"@type": "Route53", "hostedZoneId": "Z1"},
+            "records": records,
+        }))
+        .unwrap();
+        d
+    }
+
+    #[tokio::test]
+    async fn automatic_dns_selects_the_server_and_puts_it_back() {
+        let (gateway, cluster) = (FakeGateway::default(), FakeCluster::default());
+        gateway.seed_dns_server(&[("@type", "Route53"), ("hostedZoneId", "Z0")]);
+        let server = gateway.seed_dns_server(&[("@type", "Route53"), ("hostedZoneId", "Z1")]);
+        let d = automatic("weebo.internal", serde_json::json!({"caa": false}));
+        let first = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(first.reason(), ReasonCode::Reconciled, "{:?}", first.ready);
+        let id = first.remote_id.clone().unwrap();
+        let dns = gateway.domain(&id).unwrap().dns;
+        assert_eq!(dns.kind, "Automatic");
+        assert_eq!(dns.server_id.as_deref(), Some(server.as_str()));
+        assert_eq!((dns.records["caa"], dns.records["mx"]), (false, true));
+        let d = record(d, &first);
+
+        // Set back to Manual by hand: put back.
+        gateway.clear_writes();
+        gateway.edit_domain(&id, |r| r.dns = domain::mail_domain::RemoteDns::manual());
+        let corrected = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(corrected.drift.fields(), ["dnsManagement"]);
+        assert_eq!(gateway.domain(&id).unwrap().dns, dns);
+
+        gateway.clear_writes();
+        let quiet = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(quiet.write, None);
+        assert!(gateway.writes().is_empty(), "{:?}", gateway.writes());
+    }
+
+    #[tokio::test]
+    async fn automatic_dns_needs_exactly_one_server() {
+        let (gateway, cluster) = (FakeGateway::default(), FakeCluster::default());
+        let d = automatic("weebo.internal", serde_json::json!({}));
+        let none = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(none.reason(), ReasonCode::DnsServerNotFound);
+        assert!(gateway.writes().is_empty());
+        gateway.seed_dns_server(&[
+            ("@type", "Route53"),
+            ("hostedZoneId", "Z1"),
+            ("description", "a"),
+        ]);
+        gateway.seed_dns_server(&[
+            ("@type", "Route53"),
+            ("hostedZoneId", "Z1"),
+            ("description", "b"),
+        ]);
+        let two = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(two.reason(), ReasonCode::DnsServerNotFound);
+        assert!(gateway.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unknown_record_type_is_an_invalid_spec() {
+        let (gateway, cluster) = (FakeGateway::default(), FakeCluster::default());
+        gateway.seed_dns_server(&[("@type", "Route53"), ("hostedZoneId", "Z1")]);
+        let d = automatic("weebo.internal", serde_json::json!({"nope": false}));
+        let outcome = reconcile_domain(&d, &main(), &gateway, &cluster).await;
+        assert_eq!(outcome.reason(), ReasonCode::InvalidSpec);
     }
 
     #[tokio::test]

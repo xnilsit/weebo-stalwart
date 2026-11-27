@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use kube::{CustomResource, ResourceExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -60,10 +62,14 @@ pub struct StalwartDomainSpec {
     pub sub_addressing: SubAddressing,
     /// `Automatic`: Stalwart generates the domain's DKIM keys (Ed25519 and
     /// RSA, its default parameters) and signs with them; their DNS records
-    /// are published by hand. `Manual`: keys are managed outside the
-    /// operator.
+    /// are published by hand, or by Stalwart with `dns.management:
+    /// Automatic`. `Manual`: keys are managed outside the operator.
     #[serde(default)]
     pub dkim: Dkim,
+    /// Who publishes the domain's DNS records (`dnsManagement`). Unset:
+    /// `Manual`, published by hand.
+    #[serde(default)]
+    pub dns: DomainDns,
     /// Only `Orphan`: the operator's API key may not destroy domains, and a
     /// domain is removed by hand.
     // RFC 0001 Q17 (D18): refused three times — the schema's CEL rule, the
@@ -90,13 +96,56 @@ pub enum Dkim {
     Manual,
 }
 
+/// `dnsManagement`: `Automatic` has Stalwart publish and update the
+/// domain's records (MX, SPF, DKIM, DMARC, MTA-STS, TLSA, …) through an
+/// `x:DnsServer` that already exists in Stalwart: the operator selects it,
+/// it never creates one.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[schemars(extend("x-kubernetes-validations" = [
+    {"rule": "self.management != 'Automatic' || size(self.serverSelector) > 0", "message": "dns.serverSelector is required when dns.management is Automatic"}
+]))]
+pub struct DomainDns {
+    #[serde(default)]
+    pub management: DnsManagement,
+    /// The `x:DnsServer` Stalwart publishes through, matched on its
+    /// top-level string fields (`@type`, `description`, `hostedZoneId`,
+    /// …): exactly one server must match them all. Required with
+    /// `Automatic`.
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub server_selector: BTreeMap<String, String>,
+    /// Record types (`publishRecords`) set to `false` are not published;
+    /// every other type is. Types: `autoConfig`, `autoConfigLegacy`,
+    /// `autoDiscover`, `caa`, `dkim`, `dmarc`, `mtaSts`, `mx`, `spf`,
+    /// `srv`, `tlsRpt`, `tlsa`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub records: BTreeMap<String, bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, JsonSchema, PartialEq, Eq)]
+pub enum DnsManagement {
+    #[default]
+    Manual,
+    Automatic,
+}
+
 impl Domain {
     /// The domain name: `spec.name`, or the CR's own name — normalized.
     pub fn domain_name(&self) -> String {
         domain::mail::normalize_domain(&self.spec.name.clone().unwrap_or_else(|| self.name_any()))
     }
 
-    /// The state the operator wants in Stalwart.
+    /// `spec.dns` when its management is `Automatic`: the reconcile
+    /// resolves `serverSelector` to the server's id, then sets it with
+    /// [`domain::mail_domain::DesiredDomain::with_dns`].
+    pub fn automatic_dns(&self) -> Option<&DomainDns> {
+        let dns = &self.spec.dns;
+        (dns.management == DnsManagement::Automatic).then_some(dns)
+    }
+
+    /// The state the operator wants in Stalwart, `dnsManagement` `Manual`
+    /// (see [`Domain::automatic_dns`]).
     pub fn desired(&self) -> domain::mail_domain::DesiredDomain {
         use domain::mail_domain::{DesiredDomain, DkimManagement, SubAddressing as Sub};
         DesiredDomain::new(
@@ -126,6 +175,42 @@ mod tests {
         assert_eq!(spec.dkim, Dkim::Automatic);
         assert_eq!(spec.deletion_policy, DeletionPolicy::Orphan);
         assert!(spec.aliases.is_empty());
+        assert_eq!(spec.dns, DomainDns::default());
+    }
+
+    #[test]
+    fn automatic_dns_is_read_from_the_spec() {
+        let d = Domain::new(
+            "weebo.internal",
+            serde_json::from_value(serde_json::json!({"dns": {
+                "management": "Automatic",
+                "serverSelector": {"@type": "Route53", "hostedZoneId": "Z1"},
+                "records": {"caa": false}
+            }}))
+            .unwrap(),
+        );
+        let dns = d.automatic_dns().unwrap();
+        assert_eq!(dns.server_selector["hostedZoneId"], "Z1");
+        assert!(!dns.records["caa"]);
+        let manual = Domain::new(
+            "weebo.internal",
+            serde_json::from_value(serde_json::json!({})).unwrap(),
+        );
+        assert!(manual.automatic_dns().is_none());
+    }
+
+    #[test]
+    fn the_schema_requires_a_selector_with_automatic_dns() {
+        use kube::CustomResourceExt;
+        let crd = serde_json::to_value(Domain::crd()).unwrap();
+        let dns = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+            ["dns"];
+        assert!(
+            dns["x-kubernetes-validations"][0]["rule"]
+                .as_str()
+                .unwrap()
+                .contains("serverSelector")
+        );
     }
 
     #[test]

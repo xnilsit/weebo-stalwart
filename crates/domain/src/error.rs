@@ -92,6 +92,9 @@ weebo_kit_domain::reason_codes! {
         /// Stalwart refused to delete the remote object: other objects
         /// still use it (`objectIsLinked`). Retried, never forced.
         ObjectIsLinked,
+        /// `spec.dns.serverSelector` matches no `x:DnsServer`, or more than
+        /// one: retried, the server is created outside the operator.
+        DnsServerNotFound,
     }
 }
 

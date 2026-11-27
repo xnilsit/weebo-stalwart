@@ -7,12 +7,15 @@
 //! | --- | --- |
 //! | `name`, `catchAllAddress`, `allowRelaying` | equality, names lowercased |
 //! | `aliases` | set, lowercased (Stalwart stores them as sent) |
-//! | `subAddressing`, `certificateManagement`, `dnsManagement` | variant (`@type`) |
+//! | `subAddressing`, `certificateManagement` | variant (`@type`) |
 //! | `dkimManagement` | variant only: `Automatic`'s parameters are the server's defaults, no opinion |
+//! | `dnsManagement` | variant; `Automatic` also `dnsServerId` and the record types the CR names |
 //!
 //! `emailAddress`-like server-set fields, `description`, `isEnabled`,
 //! `reportAddressUri` and the enterprise fields are never compared nor
 //! written.
+
+use std::collections::BTreeMap;
 
 use crate::drift::{Drift, same_set};
 use crate::mail::normalize_domain;
@@ -60,9 +63,96 @@ impl DkimManagement {
     }
 }
 
-/// The domain the operator wants. `certificateManagement` and
-/// `dnsManagement` are always `Manual`, `allowRelaying` always `false`: set
-/// at creation, put back on drift, not exposed.
+/// The record types of `dnsManagement.publishRecords` Stalwart 1.x knows.
+pub const DNS_RECORDS: &[&str] = &[
+    "autoConfig",
+    "autoConfigLegacy",
+    "autoDiscover",
+    "caa",
+    "dkim",
+    "dmarc",
+    "mtaSts",
+    "mx",
+    "spf",
+    "srv",
+    "tlsRpt",
+    "tlsa",
+];
+
+/// `dnsManagement`, resolved: `Automatic` names the `x:DnsServer` by id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DnsManagement {
+    Manual,
+    Automatic {
+        server_id: String,
+        /// Every type of [`DNS_RECORDS`], `true` unless the CR turned it
+        /// off.
+        records: BTreeMap<String, bool>,
+    },
+}
+
+impl DnsManagement {
+    /// `Automatic` on `server_id`, every record type published but those
+    /// `records` sets to `false`.
+    pub fn automatic(server_id: &str, records: &BTreeMap<String, bool>) -> Self {
+        let records = DNS_RECORDS
+            .iter()
+            .map(|r| (r.to_string(), records.get(*r).copied().unwrap_or(true)))
+            .collect();
+        DnsManagement::Automatic {
+            server_id: server_id.to_string(),
+            records,
+        }
+    }
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            DnsManagement::Manual => variant::MANUAL,
+            DnsManagement::Automatic { .. } => variant::AUTOMATIC,
+        }
+    }
+
+    /// Whether `remote` is this state: the variant, then for `Automatic`
+    /// the server and every record type named here (a type the operator
+    /// doesn't know is no opinion).
+    pub fn matches(&self, remote: &RemoteDns) -> bool {
+        match self {
+            DnsManagement::Manual => remote.kind == variant::MANUAL,
+            DnsManagement::Automatic { server_id, records } => {
+                remote.kind == variant::AUTOMATIC
+                    && remote.server_id.as_deref() == Some(server_id.as_str())
+                    && records
+                        .iter()
+                        .all(|(r, on)| remote.records.get(r).copied().unwrap_or(false) == *on)
+            }
+        }
+    }
+}
+
+/// `dnsManagement` as Stalwart returns it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteDns {
+    /// The variant's `@type`.
+    pub kind: String,
+    /// `dnsServerId`, `Automatic` only.
+    pub server_id: Option<String>,
+    /// `publishRecords`, `Automatic` only.
+    pub records: BTreeMap<String, bool>,
+}
+
+impl RemoteDns {
+    pub fn manual() -> Self {
+        RemoteDns {
+            kind: variant::MANUAL.into(),
+            ..Default::default()
+        }
+    }
+}
+
+/// The domain the operator wants. `certificateManagement` is always
+/// `Manual`, `allowRelaying` always `false`: set at creation, put back on
+/// drift, not exposed. `dnsManagement` is `Manual` unless
+/// [`DesiredDomain::with_dns`] says otherwise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesiredDomain {
     /// Normalized ([`normalize_domain`]).
@@ -75,6 +165,7 @@ pub struct DesiredDomain {
     pub catch_all: Option<String>,
     pub sub_addressing: SubAddressing,
     pub dkim: DkimManagement,
+    pub dns: DnsManagement,
 }
 
 impl DesiredDomain {
@@ -96,12 +187,18 @@ impl DesiredDomain {
             catch_all,
             sub_addressing,
             dkim,
+            dns: DnsManagement::Manual,
         }
+    }
+
+    /// The same domain with `dnsManagement` set to `dns`.
+    pub fn with_dns(mut self, dns: DnsManagement) -> Self {
+        self.dns = dns;
+        self
     }
 
     pub const ALLOW_RELAYING: bool = false;
     pub const CERTIFICATE_MANAGEMENT: &'static str = variant::MANUAL;
-    pub const DNS_MANAGEMENT: &'static str = variant::MANUAL;
 }
 
 /// A domain as Stalwart returns it (the owned fields only). Variant fields
@@ -114,7 +211,7 @@ pub struct RemoteDomain {
     pub allow_relaying: bool,
     pub sub_addressing: String,
     pub dkim: String,
-    pub dns: String,
+    pub dns: RemoteDns,
     pub certificate: String,
 }
 
@@ -129,8 +226,7 @@ pub struct DomainPatch {
     pub allow_relaying: Option<bool>,
     pub sub_addressing: Option<SubAddressing>,
     pub dkim: Option<DkimManagement>,
-    /// Always `Manual` when sent.
-    pub dns: Option<&'static str>,
+    pub dns: Option<DnsManagement>,
     /// Always `Manual` when sent.
     pub certificate: Option<&'static str>,
 }
@@ -153,7 +249,7 @@ pub fn domain_patch(desired: &DesiredDomain, remote: &RemoteDomain) -> (DomainPa
         allow_relaying: Some(DesiredDomain::ALLOW_RELAYING),
         sub_addressing: Some(desired.sub_addressing),
         dkim: Some(desired.dkim),
-        dns: Some(DesiredDomain::DNS_MANAGEMENT),
+        dns: Some(desired.dns.clone()),
         certificate: Some(DesiredDomain::CERTIFICATE_MANAGEMENT),
     };
     let mut drift = Drift::default();
@@ -186,7 +282,9 @@ pub fn domain_patch(desired: &DesiredDomain, remote: &RemoteDomain) -> (DomainPa
     drift.keep_with("dkimManagement", &mut patch.dkim, &remote.dkim, |d, r| {
         d.as_str() == r
     });
-    drift.keep_with("dnsManagement", &mut patch.dns, &remote.dns, |d, r| d == r);
+    drift.keep_with("dnsManagement", &mut patch.dns, &remote.dns, |d, r| {
+        d.matches(r)
+    });
     drift.keep_with(
         "certificateManagement",
         &mut patch.certificate,
@@ -219,7 +317,7 @@ mod tests {
             allow_relaying: false,
             sub_addressing: "Enabled".into(),
             dkim: "Automatic".into(),
-            dns: "Manual".into(),
+            dns: RemoteDns::manual(),
             certificate: "Manual".into(),
         }
     }
@@ -255,7 +353,7 @@ mod tests {
         let mut remote = stored();
         remote.sub_addressing = "Custom".into();
         remote.dkim = "Manual".into();
-        remote.dns = "Automatic".into();
+        remote.dns.kind = "Automatic".into();
         let (patch, drift) = domain_patch(&desired(), &remote);
         assert_eq!(
             drift.fields(),
@@ -263,8 +361,81 @@ mod tests {
         );
         assert_eq!(patch.sub_addressing, Some(SubAddressing::Enabled));
         assert_eq!(patch.dkim, Some(DkimManagement::Automatic));
-        assert_eq!(patch.dns, Some("Manual"));
+        assert_eq!(patch.dns, Some(DnsManagement::Manual));
         assert_eq!(patch.certificate, None);
+    }
+
+    fn automatic(records: &[(&str, bool)]) -> DnsManagement {
+        let records = records.iter().map(|(r, on)| (r.to_string(), *on)).collect();
+        DnsManagement::automatic("srv1", &records)
+    }
+
+    /// `remote` as Stalwart stores `dns` once sent.
+    fn stored_dns(dns: &DnsManagement) -> RemoteDns {
+        match dns {
+            DnsManagement::Manual => RemoteDns::manual(),
+            DnsManagement::Automatic { server_id, records } => RemoteDns {
+                kind: "Automatic".into(),
+                server_id: Some(server_id.clone()),
+                records: records.clone(),
+            },
+        }
+    }
+
+    #[test]
+    fn automatic_dns_publishes_every_type_but_those_turned_off() {
+        let records = match automatic(&[("caa", false)]) {
+            DnsManagement::Automatic { records, .. } => records,
+            DnsManagement::Manual => BTreeMap::new(),
+        };
+        assert_eq!(records.len(), DNS_RECORDS.len());
+        assert!(!records["caa"]);
+        assert!(records["mx"]);
+    }
+
+    #[test]
+    fn automatic_dns_in_sync_once_stored() {
+        let dns = automatic(&[("tlsa", false)]);
+        let desired = desired().with_dns(dns.clone());
+        let mut remote = stored();
+        remote.dns = stored_dns(&dns);
+        // a record type the operator doesn't know is no opinion
+        remote.dns.records.insert("future".into(), true);
+        let (patch, drift) = domain_patch(&desired, &remote);
+        assert!(drift.is_empty(), "{drift:?}");
+        assert_eq!(patch, DomainPatch::default());
+    }
+
+    #[test]
+    fn automatic_dns_drifts_on_the_server_the_records_and_the_variant() {
+        let dns = automatic(&[]);
+        let desired = desired().with_dns(dns.clone());
+        for edit in [
+            (|r: &mut RemoteDns| r.server_id = Some("other".into())) as fn(&mut RemoteDns),
+            |r| {
+                r.records.insert("mx".into(), false);
+            },
+            |r| {
+                r.records.remove("dkim");
+            },
+            |r| *r = RemoteDns::manual(),
+        ] {
+            let mut remote = stored();
+            remote.dns = stored_dns(&dns);
+            edit(&mut remote.dns);
+            let (patch, drift) = domain_patch(&desired, &remote);
+            assert_eq!(drift.fields(), ["dnsManagement"]);
+            assert_eq!(patch.dns, Some(dns.clone()));
+        }
+    }
+
+    #[test]
+    fn manual_dns_puts_back_an_automatic_one() {
+        let mut remote = stored();
+        remote.dns = stored_dns(&automatic(&[]));
+        let (patch, drift) = domain_patch(&desired(), &remote);
+        assert_eq!(drift.fields(), ["dnsManagement"]);
+        assert_eq!(patch.dns, Some(DnsManagement::Manual));
     }
 
     #[test]

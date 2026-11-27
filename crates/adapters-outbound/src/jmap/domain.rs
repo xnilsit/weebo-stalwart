@@ -1,6 +1,7 @@
 //! `x:Domain` on the wire.
 
-use application::ports::{DesiredDomain, DomainPatch, GatewayError, RemoteDomain};
+use application::ports::{DesiredDomain, DomainPatch, GatewayError, RemoteDnsServer, RemoteDomain};
+use domain::mail_domain::{DnsManagement, RemoteDns};
 use serde_json::{Map, Value, json};
 
 /// What a read asks for: the fields compared, nothing else (a full get
@@ -31,6 +32,20 @@ fn variant(name: &str) -> Value {
     json!({"@type": name})
 }
 
+/// `dnsManagement` on the wire: `Automatic` with its server, the record
+/// types and no `origin` (the domain's own name).
+fn dns(dns: &DnsManagement) -> Value {
+    match dns {
+        DnsManagement::Manual => variant(dns.as_str()),
+        DnsManagement::Automatic { server_id, records } => json!({
+            "@type": dns.as_str(),
+            "dnsServerId": server_id,
+            "origin": null,
+            "publishRecords": records,
+        }),
+    }
+}
+
 /// The creation of `desired`: every owned field, the server's defaults for
 /// the rest (`Automatic` DKIM with its default parameters).
 pub fn create(desired: &DesiredDomain) -> Value {
@@ -46,10 +61,7 @@ pub fn create(desired: &DesiredDomain) -> Value {
         variant(desired.sub_addressing.as_str()),
     );
     object.insert("dkimManagement".into(), variant(desired.dkim.as_str()));
-    object.insert(
-        "dnsManagement".into(),
-        variant(DesiredDomain::DNS_MANAGEMENT),
-    );
+    object.insert("dnsManagement".into(), dns(&desired.dns));
     object.insert(
         "certificateManagement".into(),
         variant(DesiredDomain::CERTIFICATE_MANAGEMENT),
@@ -81,8 +93,8 @@ pub fn patch(patch: &DomainPatch) -> Value {
     if let Some(dkim) = patch.dkim {
         object.insert("dkimManagement".into(), variant(dkim.as_str()));
     }
-    if let Some(dns) = patch.dns {
-        object.insert("dnsManagement".into(), variant(dns));
+    if let Some(d) = &patch.dns {
+        object.insert("dnsManagement".into(), dns(d));
     }
     if let Some(certificate) = patch.certificate {
         object.insert("certificateManagement".into(), variant(certificate));
@@ -101,6 +113,48 @@ fn type_of(object: &Value, field: &str) -> Result<String, GatewayError> {
         .and_then(Value::as_str)
         .map(String::from)
         .ok_or_else(|| unexpected(field, object))
+}
+
+fn remote_dns(object: &Value) -> Result<RemoteDns, GatewayError> {
+    let field = object
+        .get("dnsManagement")
+        .ok_or_else(|| unexpected("dnsManagement", object))?;
+    Ok(RemoteDns {
+        kind: type_of(object, "dnsManagement")?,
+        server_id: field
+            .get("dnsServerId")
+            .and_then(Value::as_str)
+            .map(String::from),
+        records: field
+            .get("publishRecords")
+            .and_then(Value::as_object)
+            .map(|r| {
+                r.iter()
+                    .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+/// An `x:DnsServer` as read: its id and its top-level string fields.
+pub fn dns_server_from_wire(object: &Value) -> Result<RemoteDnsServer, GatewayError> {
+    let id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| GatewayError::Api(format!("x:DnsServer/get: no id in {object}")))?;
+    let fields = object
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(RemoteDnsServer {
+        id: id.to_string(),
+        fields,
+    })
 }
 
 /// A domain as read: the set's keys whose value is `true`.
@@ -133,7 +187,59 @@ pub fn from_wire(object: &Value) -> Result<RemoteDomain, GatewayError> {
             .unwrap_or(false),
         sub_addressing: type_of(object, "subAddressing")?,
         dkim: type_of(object, "dkimManagement")?,
-        dns: type_of(object, "dnsManagement")?,
+        dns: remote_dns(object)?,
         certificate: type_of(object, "certificateManagement")?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    #[test]
+    fn automatic_dns_is_sent_with_its_server_and_records() {
+        let records = BTreeMap::from([("caa".to_string(), false)]);
+        let wire = dns(&DnsManagement::automatic("srv1", &records));
+        assert_eq!(wire["@type"], "Automatic");
+        assert_eq!(wire["dnsServerId"], "srv1");
+        assert_eq!(wire["origin"], Value::Null);
+        assert_eq!(wire["publishRecords"]["caa"], false);
+        assert_eq!(wire["publishRecords"]["mx"], true);
+        assert_eq!(dns(&DnsManagement::Manual), json!({"@type": "Manual"}));
+    }
+
+    #[test]
+    fn dns_management_reads_back_as_sent() {
+        let sent = DnsManagement::automatic("srv1", &BTreeMap::new());
+        let object = json!({
+            "name": "weebo.internal",
+            "subAddressing": {"@type": "Enabled"},
+            "dkimManagement": {"@type": "Automatic"},
+            "certificateManagement": {"@type": "Manual"},
+            "dnsManagement": dns(&sent),
+        });
+        let remote = from_wire(&object).unwrap();
+        assert!(sent.matches(&remote.dns), "{:?}", remote.dns);
+        let manual = json!({"dnsManagement": {"@type": "Manual"}});
+        assert_eq!(remote_dns(&manual).unwrap(), RemoteDns::manual());
+    }
+
+    #[test]
+    fn a_dns_server_keeps_its_string_fields_only() {
+        let server = dns_server_from_wire(&json!({
+            "id": "srv1",
+            "@type": "Route53",
+            "hostedZoneId": "Z1",
+            "timeout": 30000,
+            "secretKey": {"@type": "EnvironmentVariable"},
+        }))
+        .unwrap();
+        assert_eq!(server.id, "srv1");
+        assert_eq!(server.fields["@type"], "Route53");
+        assert_eq!(server.fields["hostedZoneId"], "Z1");
+        assert!(!server.fields.contains_key("timeout"));
+        assert!(!server.fields.contains_key("secretKey"));
+    }
 }

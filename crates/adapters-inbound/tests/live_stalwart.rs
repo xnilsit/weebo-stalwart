@@ -58,6 +58,11 @@ impl RemoteGateway for Counting {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.update_domain(id, patch).await
     }
+    async fn list_dns_servers(
+        &self,
+    ) -> Result<Vec<application::ports::RemoteDnsServer>, GatewayError> {
+        self.inner.list_dns_servers().await
+    }
     async fn get_account(&self, id: &str) -> Result<Option<RemoteAccount>, GatewayError> {
         self.inner.get_account(id).await
     }

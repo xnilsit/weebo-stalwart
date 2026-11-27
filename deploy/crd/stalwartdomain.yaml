@@ -73,12 +73,49 @@ spec:
                 description: |-
                   `Automatic`: Stalwart generates the domain's DKIM keys (Ed25519 and
                   RSA, its default parameters) and signs with them; their DNS records
-                  are published by hand. `Manual`: keys are managed outside the
-                  operator.
+                  are published by hand, or by Stalwart with `dns.management:
+                  Automatic`. `Manual`: keys are managed outside the operator.
                 enum:
                 - Automatic
                 - Manual
                 type: string
+              dns:
+                default:
+                  management: Manual
+                  serverSelector: {}
+                description: |-
+                  Who publishes the domain's DNS records (`dnsManagement`). Unset:
+                  `Manual`, published by hand.
+                properties:
+                  management:
+                    default: Manual
+                    enum:
+                    - Manual
+                    - Automatic
+                    type: string
+                  records:
+                    additionalProperties:
+                      type: boolean
+                    description: |-
+                      Record types (`publishRecords`) set to `false` are not published;
+                      every other type is. Types: `autoConfig`, `autoConfigLegacy`,
+                      `autoDiscover`, `caa`, `dkim`, `dmarc`, `mtaSts`, `mx`, `spf`,
+                      `srv`, `tlsRpt`, `tlsa`.
+                    type: object
+                  serverSelector:
+                    additionalProperties:
+                      type: string
+                    default: {}
+                    description: |-
+                      The `x:DnsServer` Stalwart publishes through, matched on its
+                      top-level string fields (`@type`, `description`, `hostedZoneId`,
+                      …): exactly one server must match them all. Required with
+                      `Automatic`.
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: dns.serverSelector is required when dns.management is Automatic
+                  rule: self.management != 'Automatic' || size(self.serverSelector) > 0
               instanceRef:
                 description: |-
                   The `StalwartInstance` (or shared `StalwartLocalInstance`) the

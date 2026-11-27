@@ -42,6 +42,7 @@ pub use weebo_kit_application::test_support::FakeSecretStore;
 #[derive(Default)]
 pub struct FakeGateway {
     domains: Mutex<BTreeMap<String, RemoteDomain>>,
+    dns_servers: Mutex<Vec<crate::ports::RemoteDnsServer>>,
     accounts: Mutex<BTreeMap<String, RemoteAccount>>,
     lists: Mutex<BTreeMap<String, RemoteMailingList>>,
     /// Per account: `(description, secret)`, oldest first.
@@ -89,6 +90,23 @@ impl FakeGateway {
                 domain::mail_domain::DkimManagement::Automatic,
             )),
         );
+        id
+    }
+
+    /// An `x:DnsServer` created outside the operator, with `fields`;
+    /// returns its id.
+    pub fn seed_dns_server(&self, fields: &[(&str, &str)]) -> String {
+        let id = self.next_id();
+        self.dns_servers
+            .lock()
+            .unwrap()
+            .push(crate::ports::RemoteDnsServer {
+                id: id.clone(),
+                fields: fields
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            });
         id
     }
 
@@ -322,6 +340,19 @@ impl FakeGateway {
 
 /// What Stalwart stores for `desired`: the server's own normalization
 /// (lowercased name and catch-all, aliases as sent).
+/// `dnsManagement` as Stalwart stores `dns`.
+fn stored_dns(dns: &domain::mail_domain::DnsManagement) -> domain::mail_domain::RemoteDns {
+    use domain::mail_domain::{DnsManagement, RemoteDns};
+    match dns {
+        DnsManagement::Manual => RemoteDns::manual(),
+        DnsManagement::Automatic { server_id, records } => RemoteDns {
+            kind: dns.as_str().into(),
+            server_id: Some(server_id.clone()),
+            records: records.clone(),
+        },
+    }
+}
+
 fn stored(desired: &DesiredDomain) -> RemoteDomain {
     RemoteDomain {
         name: desired.name.clone(),
@@ -330,7 +361,7 @@ fn stored(desired: &DesiredDomain) -> RemoteDomain {
         allow_relaying: DesiredDomain::ALLOW_RELAYING,
         sub_addressing: desired.sub_addressing.as_str().into(),
         dkim: desired.dkim.as_str().into(),
-        dns: DesiredDomain::DNS_MANAGEMENT.into(),
+        dns: stored_dns(&desired.dns),
         certificate: DesiredDomain::CERTIFICATE_MANAGEMENT.into(),
     }
 }
@@ -425,6 +456,11 @@ impl RemoteGateway for FakeGateway {
         Ok(id)
     }
 
+    async fn list_dns_servers(&self) -> Result<Vec<crate::ports::RemoteDnsServer>, GatewayError> {
+        self.check()?;
+        Ok(self.dns_servers.lock().unwrap().clone())
+    }
+
     async fn update_domain(&self, id: &str, patch: &DomainPatch) -> Result<(), GatewayError> {
         self.check()?;
         if let Some(name) = &patch.name
@@ -456,8 +492,8 @@ impl RemoteGateway for FakeGateway {
         if let Some(dkim) = patch.dkim {
             domain.dkim = dkim.as_str().into();
         }
-        if let Some(dns) = patch.dns {
-            domain.dns = dns.into();
+        if let Some(dns) = &patch.dns {
+            domain.dns = stored_dns(dns);
         }
         if let Some(certificate) = patch.certificate {
             domain.certificate = certificate.into();

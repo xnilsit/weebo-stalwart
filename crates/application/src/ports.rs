@@ -16,6 +16,14 @@ use api::common::{SecretStoreBackend, Submission, VaultPathGrant};
 pub use domain::account::{AccountPatch, DesiredAccount, RemoteAccount};
 use domain::error::ReasonCode;
 pub use domain::mail_domain::{DesiredDomain, DomainPatch, RemoteDomain};
+
+/// An `x:DnsServer`: its id and its top-level string fields (`@type`
+/// included), what `spec.dns.serverSelector` matches on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDnsServer {
+    pub id: String,
+    pub fields: std::collections::BTreeMap<String, String>,
+}
 pub use domain::mailing_list::{DesiredMailingList, MailingListPatch, RemoteMailingList};
 pub use weebo_kit_application::instances::{
     BoundInstance, InstanceDirectory, InstanceError, ResolveError,
@@ -101,6 +109,8 @@ pub trait RemoteGateway: Send + Sync {
     async fn create_domain(&self, domain: &DesiredDomain) -> Result<String, GatewayError>;
     /// Sends the fields of `patch` (only those) to the domain `id`.
     async fn update_domain(&self, id: &str, patch: &DomainPatch) -> Result<(), GatewayError>;
+    /// Every `x:DnsServer`. Read only: the operator never writes one.
+    async fn list_dns_servers(&self) -> Result<Vec<RemoteDnsServer>, GatewayError>;
 
     /// The account (user or group) `id`, `None` when there is none.
     async fn get_account(&self, id: &str) -> Result<Option<RemoteAccount>, GatewayError>;

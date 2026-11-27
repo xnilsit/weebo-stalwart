@@ -54,6 +54,7 @@ source so it always matches the installed version. The usual ones:
 | --- | --- |
 | `NamespaceNotAllowed` | The [allow-list](/docs/guides/allow-list) doesn't cover the kind, the domain, the name or one of the aliases |
 | `DomainNotFound` / `DomainNotReady` | The `domainRef` is wrong, or the domain isn't `Ready` on the same instance yet |
+| `DnsServerNotFound` | `dns.serverSelector` matches no `x:DnsServer`, or several: create the server, or narrow the selector |
 | `StalwartObjectAlreadyExists` | The address exists in Stalwart without a CR (made by hand, or by a first OpenID Connect sign-in): use the [importer](/docs/guides/migration) |
 | `RemoteObjectClaimed` | Another CR owns that address |
 | `SecretTargetFailed` | A target Secret is owned by something else, or Vault refused the write |

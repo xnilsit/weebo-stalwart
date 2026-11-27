@@ -52,6 +52,24 @@ pub fn check_domain(domain: &Domain) -> Result<(), Failure> {
     if let Some(local) = &spec.catch_all {
         mail::check_local_part(local).map_err(|e| invalid(format!("spec.catchAll: {e}")))?;
     }
+    if let Some(dns) = domain.automatic_dns()
+        && dns.server_selector.is_empty()
+    {
+        return Err(invalid(
+            "spec.dns.serverSelector is required when spec.dns.management is Automatic".into(),
+        ));
+    }
+    if let Some(unknown) = spec
+        .dns
+        .records
+        .keys()
+        .find(|r| !domain::mail_domain::DNS_RECORDS.contains(&r.as_str()))
+    {
+        return Err(invalid(format!(
+            "spec.dns.records: unknown record type {unknown:?}, known: {}",
+            domain::mail_domain::DNS_RECORDS.join(", ")
+        )));
+    }
     Ok(())
 }
 

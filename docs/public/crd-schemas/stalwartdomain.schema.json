@@ -37,12 +37,51 @@
     },
     "dkim": {
       "default": "Automatic",
-      "description": "`Automatic`: Stalwart generates the domain's DKIM keys (Ed25519 and\nRSA, its default parameters) and signs with them; their DNS records\nare published by hand. `Manual`: keys are managed outside the\noperator.",
+      "description": "`Automatic`: Stalwart generates the domain's DKIM keys (Ed25519 and\nRSA, its default parameters) and signs with them; their DNS records\nare published by hand, or by Stalwart with `dns.management:\nAutomatic`. `Manual`: keys are managed outside the operator.",
       "enum": [
         "Automatic",
         "Manual"
       ],
       "type": "string"
+    },
+    "dns": {
+      "default": {
+        "management": "Manual",
+        "serverSelector": {}
+      },
+      "description": "Who publishes the domain's DNS records (`dnsManagement`). Unset:\n`Manual`, published by hand.",
+      "properties": {
+        "management": {
+          "default": "Manual",
+          "enum": [
+            "Manual",
+            "Automatic"
+          ],
+          "type": "string"
+        },
+        "records": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Record types (`publishRecords`) set to `false` are not published;\nevery other type is. Types: `autoConfig`, `autoConfigLegacy`,\n`autoDiscover`, `caa`, `dkim`, `dmarc`, `mtaSts`, `mx`, `spf`,\n`srv`, `tlsRpt`, `tlsa`.",
+          "type": "object"
+        },
+        "serverSelector": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The `x:DnsServer` Stalwart publishes through, matched on its\ntop-level string fields (`@type`, `description`, `hostedZoneId`,\n…): exactly one server must match them all. Required with\n`Automatic`.",
+          "type": "object"
+        }
+      },
+      "type": "object",
+      "x-kubernetes-validations": [
+        {
+          "message": "dns.serverSelector is required when dns.management is Automatic",
+          "rule": "self.management != 'Automatic' || size(self.serverSelector) > 0"
+        }
+      ]
     },
     "instanceRef": {
       "description": "The `StalwartInstance` (or shared `StalwartLocalInstance`) the\ndomain lives on. Unset: the only `StalwartInstance`.",

@@ -38,8 +38,8 @@ mod mailing_list;
 
 use application::ports::{
     AccountPatch, DesiredAccount, DesiredDomain, DesiredMailingList, DomainPatch, GatewayError,
-    GatewayFactoryError, MailingListPatch, RemoteAccount, RemoteDomain, RemoteGateway,
-    RemoteMailingList,
+    GatewayFactoryError, MailingListPatch, RemoteAccount, RemoteDnsServer, RemoteDomain,
+    RemoteGateway, RemoteMailingList,
 };
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -406,6 +406,22 @@ impl RemoteGateway for JmapGateway {
 
     async fn update_domain(&self, id: &str, patch: &DomainPatch) -> Result<(), GatewayError> {
         self.update("x:Domain/set", id, domain::patch(patch)).await
+    }
+
+    async fn list_dns_servers(&self) -> Result<Vec<RemoteDnsServer>, GatewayError> {
+        let account = self.account().await?;
+        let answer = self
+            .client
+            .call(
+                "x:DnsServer/get",
+                json!({"accountId": account, "ids": null}),
+            )
+            .await?;
+        answer
+            .get("list")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().map(domain::dns_server_from_wire).collect())
+            .unwrap_or_else(|| Ok(Vec::new()))
     }
 
     async fn get_account(&self, id: &str) -> Result<Option<RemoteAccount>, GatewayError> {
